@@ -1,0 +1,71 @@
+// wik3-report — genera el reporte on-demand con la data que haya en el
+// workspace, sin re-correr recon/passive/active/validate. Útil para:
+//   - Abortar un run largo y quedarte con lo que el agente ya encontró.
+//   - Re-generar el reporte tras editar manualmente findings/chains.
+//   - Ejecutar solo el último paso cuando el resto está cacheado.
+//
+// Uso (vía ./report-now.sh <slug> o directamente):
+//   fabro run wik3-report --goal ./engagements/engagement.<slug>.yaml
+//
+// El workspace debe existir ya (corrido al menos una vez con `wik3`).
+// Si faltan archivos (findings.json, chains.json, screenshots), el reporte
+// los menciona como ausentes pero se emite igual.
+
+digraph Wik3Report {
+    graph [
+        goal="{{ goal }}",
+        model_stylesheet="
+            *                  { model: claude-sonnet-4-6; reasoning_effort: medium; }
+            #report            { model: claude-opus-4-7; reasoning_effort: high; }
+            #report_fallback   { model: claude-opus-4-7; reasoning_effort: medium; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    load_engagement [
+        label="Load Engagement",
+        shape=parallelogram,
+        script="bash fabro/workflows/wik3/scripts/load_engagement.sh '{{ goal }}'"
+    ]
+
+    mark_report_start [
+        label="Mark Report Start",
+        shape=parallelogram,
+        script="bash fabro/workflows/wik3/scripts/mark_report_start.sh"
+    ]
+
+    report [
+        label="Write Report (on-demand)",
+        prompt="@prompts/report.md",
+        timeout="3600s",
+        max_retries=3,          // stream-error recovery
+        max_tokens=64000
+    ]
+
+    report_fallback [
+        label="Write Report (fallback high)",
+        prompt="@prompts/report.md",
+        timeout="3600s",
+        max_retries=0,
+        max_tokens=64000
+    ]
+
+    finalize_report [
+        label="Finalize Report",
+        shape=parallelogram,
+        script="bash fabro/workflows/wik3/scripts/finalize_report.sh"
+    ]
+
+    start           -> load_engagement
+    load_engagement -> mark_report_start [condition="outcome=success"]
+    load_engagement -> exit
+    mark_report_start -> report          [condition="outcome=success"]
+    mark_report_start -> exit
+    report          -> finalize_report   [condition="outcome=success"]
+    report          -> report_fallback
+    report_fallback -> finalize_report
+    finalize_report -> exit
+}

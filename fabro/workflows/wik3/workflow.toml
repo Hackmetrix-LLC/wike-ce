@@ -1,0 +1,282 @@
+_version = 1
+
+[workflow]
+graph = "workflow.fabro"
+
+[run]
+# Pasá la ruta del engagement.yaml como --goal:
+#   fabro run wik3 --goal ./engagement.yaml
+goal = "./engagement.yaml"
+
+[run.sandbox]
+provider = "docker"
+
+# NOTA: Fabro 0.207 NO acepta `extra_mounts` aquí (campos válidos:
+# provider/preserve/devcontainer/env/local/daytona). Para inyectar el CA
+# de Burp en el container del agente hay que encontrar otro mecanismo
+# (pre-bake en imagen, fabro hooks, o esperar a que Fabro exponga mounts
+# extra). Por ahora el cert vive en /etc/wik3/burp-ca.crt en la VM pero
+# no llega al container — el agente verá SSL_VERIFY_FAILED contra targets
+# HTTPS interceptados por Burp.
+
+[run.sandbox.env]
+# NOTE: Fabro no interpola `{{ goal }}` en sandbox.env (solo `{{ env.* }}`).
+# Eso significa que no podemos propagar el engagement via env sin soporte
+# nativo. El slug se resuelve desde el marker /workspace/wik3/.active-slug
+# (escrito por load_engagement.sh) y el exec-logger lo exporta como WIK3_DIR/
+# WIK3_SLUG en cada bash -c. Sin symlink mutable 'current'.
+
+# Inyectar API keys opcionales desde el shell del host.
+# Dejar vacías si no se usan — los prompts deben degradar con elegancia.
+# ANTHROPIC_* = provider principal via LiteLLM proxy (/v1/messages, bypassea
+# la middleware OpenAI-compat que inyectaba reasoning_effort no soportado por
+# Bedrock). OPENAI_* quedan como compat para scripts legacy — apuntan al
+# mismo proxy con el mismo token.
+ANTHROPIC_API_KEY = "{{ env.ANTHROPIC_API_KEY }}"
+ANTHROPIC_BASE_URL = "{{ env.ANTHROPIC_BASE_URL }}"
+OPENAI_API_KEY = "{{ env.OPENAI_API_KEY }}"
+OPENAI_BASE_URL = "{{ env.OPENAI_BASE_URL }}"
+# Forward proxy (squid) — todas las requests HTTP del sandbox van por
+# aqui y squid filtra contra allowed_hosts.txt + LiteLLM + GCP + OSINT.
+# El gateway IP del docker bridge lo resuelve startup.sh al boot y lo
+# escribe a SANDBOX_HTTP(S)_PROXY en /etc/wik3/fabro.env.
+# En local-dev (sin VM) estas vars quedan vacias y el sandbox sale
+# directo, sin proxy. browse.py se exime via override interno.
+HTTP_PROXY = "{{ env.SANDBOX_HTTP_PROXY }}"
+HTTPS_PROXY = "{{ env.SANDBOX_HTTPS_PROXY }}"
+NO_PROXY = "{{ env.SANDBOX_NO_PROXY }}"
+SHODAN_API_KEY = "{{ env.SHODAN_API_KEY }}"
+CENSYS_API_ID = "{{ env.CENSYS_API_ID }}"
+CENSYS_API_SECRET = "{{ env.CENSYS_API_SECRET }}"
+GITHUB_TOKEN = "{{ env.GITHUB_TOKEN }}"
+BRAVE_SEARCH_API_KEY = "{{ env.BRAVE_SEARCH_API_KEY }}"
+# BASH_ENV: bash sourcea este path al iniciar `bash -c "..."`. El logger
+# script registra cada invocación del agente con BASH_EXECUTION_STRING
+# (la string del -c) al exec.log del slug activo, y exporta WIK3_DIR. El
+# dashboard lo tail-ea para mostrar la "consola del agente". El archivo
+# del logger lo crea el primer prepare.step de abajo.
+BASH_ENV = "/workspace/wik3/.exec-logger/logger.sh"
+
+# Exec logger: instala el script que bash sourcea via BASH_ENV. Captura
+# cada `bash -c "..."` que fabro ejecuta dentro del container (que es
+# como fabro corre las tools del agente) a un exec.log POR SLUG, y exporta
+# WIK3_DIR/WIK3_SLUG para los comandos. El dashboard tail-ea el archivo del
+# slug activo.
+#
+# El log vive en /workspace/wik3/<slug>/exec.log (= $WIK3_DIR/exec.log; no
+# en .exec-logger/ — ahí solo está el logger.sh). El slug se resuelve en cada
+# bash -c desde el marker /workspace/wik3/.active-slug (escrito por
+# load_engagement.sh). Antes de load_engagement, el marker no existe → fallback
+# a /workspace/wik3/.exec-logger/bootstrap.log (3-4 comandos de prepare).
+#
+# Este step va PRIMERO — el siguiente ya invoca bash y necesita
+# BASH_ENV apuntando a un archivo existente.
+[[run.prepare.steps]]
+script = """
+mkdir -p /workspace/wik3/.exec-logger
+: > /workspace/wik3/.exec-logger/bootstrap.log
+cat > /workspace/wik3/.exec-logger/logger.sh <<'LOGGER'
+# Sourced via BASH_ENV en cada `bash -c` que fabro lanza adentro del
+# container. Resuelve el engagement activo desde el marker .active-slug (sin
+# symlink) y EXPORTA WIK3_DIR/WIK3_SLUG para que el comando los use ($WIK3_DIR
+# reemplaza a /workspace/wik3/current en prompts y scripts).
+_wik3_slug=$(cat /workspace/wik3/.active-slug 2>/dev/null)
+if [ -n "$_wik3_slug" ] && [ -d "/workspace/wik3/$_wik3_slug" ]; then
+  export WIK3_SLUG="$_wik3_slug"
+  export WIK3_DIR="/workspace/wik3/$_wik3_slug"
+  _wik3_log="$WIK3_DIR/exec.log"
+else
+  # Bootstrap: los prepare steps corren antes que load_engagement, así que el
+  # marker todavía no existe. Esos comandos van al bootstrap log.
+  _wik3_log=/workspace/wik3/.exec-logger/bootstrap.log
+fi
+# Cap del exec.log: sin límite, un solo comando con salida gigante (fetch de un
+# bundle/JSON enorme) llena el disco de la VM y mata el run. _wik3_capfile escribe
+# al log hasta _wik3_maxcmd bytes POR comando y drena el resto — el passthrough a
+# fabro va completo via tee (byte-exacto, binary-safe). _wik3_maxtotal recorta el
+# log si crece demasiado a lo largo del run.
+_wik3_maxcmd=$((512*1024))
+_wik3_maxtotal=$((1024*1024*1024))
+_wik3_capfile() {
+  head -c "$2" >> "$1" 2>/dev/null
+  _more=$(head -c1 2>/dev/null)
+  [ -n "$_more" ] && printf '\\n... [exec-logger: salida truncada a %s bytes en este comando]\\n' "$2" >> "$1" 2>/dev/null
+  cat >/dev/null 2>&1
+}
+# Loggea el comando + redirige stdout/stderr (tee mantiene el passthrough a fabro;
+# la rama al archivo va capada por _wik3_capfile).
+if [ -n "${BASH_EXECUTION_STRING:-}" ]; then
+  if [ -f "$_wik3_log" ]; then
+    _wik3_sz=$(stat -c %s "$_wik3_log" 2>/dev/null || echo 0)
+    if [ "$_wik3_sz" -gt "$_wik3_maxtotal" ]; then
+      tail -c $((200*1024*1024)) "$_wik3_log" > "$_wik3_log.tmp" 2>/dev/null && mv -f "$_wik3_log.tmp" "$_wik3_log" 2>/dev/null
+    fi
+  fi
+  printf '\\n[%s] $ %s\\n' "$(date -u +%FT%TZ)" "$BASH_EXECUTION_STRING" \\
+    >> "$_wik3_log" 2>/dev/null
+  exec > >(tee >(_wik3_capfile "$_wik3_log" "$_wik3_maxcmd")) 2> >(tee >(_wik3_capfile "$_wik3_log" "$_wik3_maxcmd") >&2)
+  # Timing: medimos cuánto tarda CADA comando (incl. requests curl/python) y lo
+  # appendeamos al cierre del bash -c via trap EXIT. Sirve para ver en la consola
+  # qué requests/comandos son lentos. El exit code original se preserva.
+  _wik3_t0=$(date +%s.%N 2>/dev/null || date +%s)
+  _wik3_done() {
+    _wik3_rc=$?
+    _wik3_t1=$(date +%s.%N 2>/dev/null || date +%s)
+    _wik3_dur=$(awk -v a="$_wik3_t0" -v b="$_wik3_t1" 'BEGIN{d=b-a; if(d<0)d=0; printf "%.2f", d}' 2>/dev/null)
+    printf '\\n[exec-logger: %ss | exit %s]\\n' "$_wik3_dur" "$_wik3_rc" >> "$_wik3_log" 2>/dev/null
+  }
+  trap _wik3_done EXIT
+fi
+LOGGER
+echo 'exec-logger installed'
+"""
+
+# Toolchain ya preinstalado en la imagen fabro-agent:latest (ver docker/Dockerfile).
+# Solo verifico que las tools clave respondan.
+[[run.prepare.steps]]
+script = "command -v nmap ffuf gobuster jq yq jwt_tool hurl semgrep retire sourcemapper linkfinder secretfinder graphw00f gau waybackurls tlsx interactsh-client >/dev/null && echo 'toolchain ok' || { echo 'ERROR: toolchain incompleta' >&2; exit 1; }"
+
+# Burp CA cert: si el dashboard pre-pobló /workspace/wik3/.burp/ca.crt
+# (Fabro mountea la project root del host como /workspace), lo agregamos
+# al trust store del container con update-ca-certificates. El agente
+# puede entonces hablar HTTPS contra targets re-firmados por Burp sin
+# SSL_VERIFY_FAILED. Sin cert presente, no-op silencioso.
+[[run.prepare.steps]]
+script = """
+if [ -s /workspace/wik3/.burp/ca.crt ]; then
+  install -m 0644 /workspace/wik3/.burp/ca.crt /usr/local/share/ca-certificates/wik3-burp.crt
+  update-ca-certificates --fresh >/dev/null 2>&1 || true
+  echo "burp CA installed in container trust store ($(wc -c < /workspace/wik3/.burp/ca.crt) bytes)"
+fi
+"""
+
+# Baseline de iteración para este run: el cap (max_iterations) es POR RUN, no
+# acumulado entre runs. Guardamos la iteración con la que arranca este run para
+# que discovery_stats permita max_iterations iteraciones EXTRA — si no, un run
+# nuevo arrancaría con el contador persistido (ej. 6) ya por encima del cap (5)
+# y haría una sola iteración.
+[[run.prepare.steps]]
+script = """
+s=$(cat /workspace/wik3/.active-slug 2>/dev/null || true)
+if [ -n "$s" ] && [ -d "/workspace/wik3/$s" ]; then
+  d="/workspace/wik3/$s/discovery"
+  mkdir -p "$d"
+  cur=$(cat "$d/iteration" 2>/dev/null || echo 1)
+  case "$cur" in ''|*[!0-9]*) cur=1 ;; esac
+  printf '%s' "$cur" > "$d/iteration_base"
+  echo "iteration baseline para este run: $cur"
+  # Reset del contador de intentos de login al IdP (cap por run).
+  : > "/workspace/wik3/$s/.idp-login-count" 2>/dev/null || true
+fi
+"""
+
+[run.artifacts]
+# Sin symlink 'current': con la isolación hay un único engagement dir bajo
+# /workspace/wik3 (los dotdirs .exec-logger/.burp no matchean `*`), así que
+# `*/**` recolecta exactamente los artefactos del engagement activo.
+include = ["/workspace/wik3/*/**"]
+
+# ─── Guardrails ────────────────────────────────────────────────────────────────
+
+# Guard combinado: whisper (conversacion user->agent) + scope enforcement.
+# Ver scripts/scope_guard.sh para la logica completa.
+[[run.hooks]]
+id = "scope-guard"
+event = "pre_tool_use"
+matcher = "shell|web_fetch"
+blocking = true
+script = "bash fabro/workflows/wik3/scripts/scope_guard.sh"
+
+# Cmd cap: limita comandos shell por visita de nodo (runaway guard). Caso real:
+# 9339 comandos en una iteración → exec.log 23GB → disco lleno. Ver cmd_cap.sh.
+[[run.hooks]]
+id = "cmd-cap"
+event = "pre_tool_use"
+matcher = "shell"
+blocking = true
+script = "bash fabro/workflows/wik3/scripts/cmd_cap.sh"
+
+# IdP login cap: limita los intentos de login contra el IdP (Auth0/Okta/Azure
+# AD/Google) para no disparar el bloqueo por brute-force de la cuenta del
+# cliente. Caso real: el agente martilló /oauth/token + /u/login/password y
+# Auth0 bloqueó la cuenta de prueba. Ver idp_login_cap.sh.
+[[run.hooks]]
+id = "idp-login-cap"
+event = "pre_tool_use"
+matcher = "shell"
+blocking = true
+script = "bash fabro/workflows/wik3/scripts/idp_login_cap.sh"
+
+# Autoconciencia: detecta fuerza bruta/martilleo HTTP repetido y le avisa al
+# agente para que pivote, en vez de quemar el presupuesto de tiempo del nodo
+# (25-30 min) sin converger contra targets con rate-limit. Ver selfaware_guard.sh.
+[[run.hooks]]
+id = "selfaware-guard"
+event = "pre_tool_use"
+matcher = "shell"
+blocking = true
+script = "bash fabro/workflows/wik3/scripts/selfaware_guard.sh"
+
+# Destructive guard: frena patrones obviamente destructivos aunque estén en scope.
+[[run.hooks]]
+id = "no-destructive"
+event = "pre_tool_use"
+matcher = "shell"
+blocking = true
+script = """
+INPUT=$(cat 2>/dev/null || echo '')
+if echo "$INPUT" | grep -iqE 'rm -rf /|mkfs|dd if=|shutdown|:\\(\\)\\{|DROP TABLE|DELETE FROM .* WHERE 1|truncate table'; then
+    echo "BLOCK: patrón destructivo detectado" >&2
+    exit 1
+fi
+exit 0
+"""
+
+# Recon noise guard: en la etapa recon, prohibir herramientas ruidosas
+# (directory/path bruteforce, CMS scanners, exploitation tools). Esos trabajos
+# van en active-analyze. Se filtra por node_id=recon via el matcher.
+[[run.hooks]]
+id = "recon-noise-guard"
+event = "pre_tool_use"
+matcher = "^recon$"
+blocking = true
+script = """
+INPUT=$(cat 2>/dev/null || echo '')
+[ -z "$INPUT" ] && exit 0
+NOISY='\\b(nikto|nuclei|wpscan|joomscan|dirb|gobuster|feroxbuster|ffuf|wfuzz|sqlmap|hydra|medusa|patator|dotdotpwn|whatweb|cmsmap|droopescan|dirsearch|arjun|paramspider)\\b'
+if echo "$INPUT" | grep -iqE "$NOISY"; then
+    TOOL=$(echo "$INPUT" | grep -ioE "$NOISY" | head -1)
+    echo "BLOCK[recon-noise]: '$TOOL' no permitido en recon (pasa este probing a active-analyze)" >&2
+    exit 1
+fi
+exit 0
+"""
+
+# Notificar al humano en hallazgos críticos (vía stage_complete de validate_chain).
+[[run.hooks]]
+event = "stage_complete"
+matcher = "^validate_chain$"
+blocking = false
+script = """
+WK="${WIK3_DIR:-/workspace/wik3/$(cat /workspace/wik3/.active-slug 2>/dev/null)}"
+CHAINS="$WK/validated/chains.json"
+[ -s "$CHAINS" ] || exit 0
+CRIT=$(jq '[.[] | select(.severity=="critical")] | length' "$CHAINS" 2>/dev/null || echo 0)
+if [ "$CRIT" -gt 0 ]; then
+    echo "[!] $CRIT chain(s) critica(s) detectada(s) - ver $CHAINS"
+fi
+"""
+
+# Tracking del nodo actual para la consola del dashboard. En cada entrada de
+# nodo, Fabro expone $FABRO_NODE_ID; lo escribimos en .current-node para que
+# /api/state lo muestre junto a la iteración. No-blocking, best-effort.
+[[run.hooks]]
+event = "stage_start"
+matcher = ".*"
+blocking = false
+script = """
+WK="${WIK3_DIR:-/workspace/wik3/$(cat /workspace/wik3/.active-slug 2>/dev/null)}"
+[ -n "$WK" ] && [ -d "$WK" ] || exit 0
+printf '%s' "${FABRO_NODE_ID:-}" > "$WK/.current-node" 2>/dev/null || true
+exit 0
+"""

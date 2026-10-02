@@ -1,0 +1,50 @@
+_version = 1
+
+# wik3-report: workflow auxiliar que SOLO corre el stage de reporte.
+# Reusa el sandbox, env vars y hooks del workflow principal wik3. Los
+# hooks que solo aplican a recon/validate no se activan aquí porque el
+# grafo no tiene esos nodos.
+
+[workflow]
+graph = "workflow.fabro"
+
+[run]
+goal = "./engagement.yaml"
+
+[run.sandbox]
+provider = "docker"
+
+[run.sandbox.env]
+ANTHROPIC_API_KEY = "{{ env.ANTHROPIC_API_KEY }}"
+ANTHROPIC_BASE_URL = "{{ env.ANTHROPIC_BASE_URL }}"
+OPENAI_API_KEY = "{{ env.OPENAI_API_KEY }}"
+OPENAI_BASE_URL = "{{ env.OPENAI_BASE_URL }}"
+GITHUB_TOKEN = "{{ env.GITHUB_TOKEN }}"
+
+[run.artifacts]
+include = ["/workspace/wik3/current/**"]
+
+# Guardrails mínimos: scope-guard sigue activo (por si el agente hace
+# algún shell/fetch) y no-destructive como safety net. Skip recon-noise
+# y validate-stage-complete (no aplican sin esos nodos).
+
+[[run.hooks]]
+id = "scope-guard"
+event = "pre_tool_use"
+matcher = "shell|web_fetch"
+blocking = true
+script = "bash fabro/workflows/wik3/scripts/scope_guard.sh"
+
+[[run.hooks]]
+id = "no-destructive"
+event = "pre_tool_use"
+matcher = "shell"
+blocking = true
+script = """
+INPUT=$(cat 2>/dev/null || echo '')
+if echo "$INPUT" | grep -iqE 'rm -rf /|mkfs|dd if=|shutdown|:\\(\\)\\{|DROP TABLE|DELETE FROM .* WHERE 1|truncate table'; then
+    echo "BLOCK: patrón destructivo detectado" >&2
+    exit 1
+fi
+exit 0
+"""

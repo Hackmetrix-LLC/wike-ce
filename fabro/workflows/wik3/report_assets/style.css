@@ -1,0 +1,115 @@
+/* ===== Hackmetrix report — content styling (v1) ===== */
+:root{
+  --hm-orange:#FF5824;
+  --hm-dark:#282828;
+  --hm-heading:#2b2b2b;
+  --hm-body:#3a3a3a;
+  --hm-link:#2f6fb3;
+  --hm-rule:#9a93d6;
+  --crit:#7b6fd0; --alta:#e23b2e; --media:#f08a24; --baja:#2f9fe0;
+}
+
+@page{ size:A4; margin:22mm 18mm 20mm 18mm; }
+
+html,body{ margin:0; padding:0; }
+body{
+  font-family:"Avenir Next","Avenir","Helvetica Neue","Arial",sans-serif;
+  color:var(--hm-body);
+  font-size:10.5pt;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+p{ text-align:justify; margin:0 0 9pt 0; }
+
+h1{
+  font-size:17pt; font-weight:600; color:var(--hm-heading);
+  margin:0 0 12pt 0; line-height:1.25; letter-spacing:-.2px;
+}
+h2{
+  font-size:13.5pt; font-weight:600; color:var(--hm-heading);
+  margin:20pt 0 9pt 0; line-height:1.3;
+}
+h3{
+  font-size:11pt; font-weight:700; color:var(--hm-heading);
+  margin:13pt 0 5pt 0;
+}
+
+a{ color:var(--hm-link); text-decoration:underline; word-break:break-word; }
+
+ul{ margin:0 0 9pt 0; padding-left:20pt; }
+li{ margin:0 0 3pt 0; text-align:left; }
+ul li::marker{ color:var(--hm-orange); content:"\25AA  "; font-size:.8em; }
+
+strong{ color:var(--hm-dark); }
+
+/* ---- tables ---- */
+table{ border-collapse:collapse; width:100%; margin:6pt 0 12pt 0; font-size:10pt; }
+th,td{ border:1px solid #d9d9d9; padding:5pt 8pt; text-align:left; vertical-align:top; }
+th{ background:#f4f4f6; color:var(--hm-dark); font-weight:700; }
+
+/* ---- severity pills ---- */
+.sev{ display:inline-block; padding:1px 9px; border-radius:10px; color:#fff;
+      font-size:9pt; font-weight:700; line-height:1.5; }
+.sev-critica{ background:var(--crit); }
+.sev-alta{ background:var(--alta); }
+.sev-media{ background:var(--media); }
+.sev-baja{ background:var(--baja); }
+
+/* ---- metadata block (first content page) ---- */
+.meta-head{ width:100%; border:none; margin:0 0 10pt 0; }
+.meta-head td{ border:none; border-bottom:2px solid var(--hm-dark);
+  padding:4pt 0 9pt 0; font-size:13pt; vertical-align:bottom; }
+.meta-head .mh-k{ width:30%; font-weight:700; color:var(--hm-dark); }
+.meta-head .mh-v{ font-weight:700; color:var(--hm-dark); }
+.meta-table{ width:100%; border:none; margin-top:0; }
+.meta-table td{ border:none; padding:2pt 0; }
+.meta-k{ width:30%; color:#8a8a8a; }
+.meta-v{ font-weight:700; color:var(--hm-dark); }
+
+/* ---- code / evidence (terminal style) ---- */
+pre{
+  background:#ededed; color:#222; border-radius:2px;
+  padding:9pt 12pt; font-size:8.7pt; line-height:1.5;
+  font-family:"SFMono-Regular","Menlo","Consolas",monospace;
+  white-space:pre-wrap; word-break:break-word; overflow:hidden;
+  margin:6pt 0 10pt 0;
+}
+code{ font-family:"SFMono-Regular","Menlo","Consolas",monospace; }
+p code, li code, td code{
+  background:#f0f0f2; color:#b5391f; padding:1px 4px; border-radius:3px; font-size:9pt;
+}
+
+/* ---- figures ---- */
+figure{ margin:10pt 0 12pt 0; text-align:center; }
+.evidence-box{
+  background:#0f0f10; color:#39d353; text-align:left;
+  font-family:"SFMono-Regular","Menlo","Consolas",monospace;
+  font-size:8.4pt; line-height:1.5; padding:12pt 14pt; border-radius:4px;
+  white-space:pre-wrap; word-break:break-word;
+}
+figcaption{ font-size:8.6pt; font-weight:700; color:var(--hm-dark); margin-top:5pt; text-align:center; }
+
+/* ---- severity scale graphic ---- */
+.sevscale{ display:flex; align-items:center; gap:0; margin:16pt 0 18pt 0; justify-content:center; }
+.ss-label{ font-weight:700; color:var(--hm-dark); font-size:11pt; margin-right:14pt; }
+.sevscale .seg{
+  position:relative; color:#fff; font-weight:700; font-size:9.5pt;
+  padding:6pt 20pt 6pt 26pt; text-align:center;
+}
+.sevscale .seg::before{
+  content:""; position:absolute; left:6px; top:50%; transform:translateY(-50%);
+  width:13px; height:13px; border-radius:50%; background:#fff;
+  border:3px solid rgba(0,0,0,.12); box-sizing:border-box;
+}
+.seg-bajo{ background:#2f9fe0; border-radius:14px 0 0 14px; }
+.seg-medio{ background:#f0a024; }
+.seg-alto{ background:#e23b2e; }
+.seg-critico{ background:#7b6fd0; border-radius:0 14px 14px 0; }
+
+/* ---- page break helper ---- */
+.page-break{ break-after:page; }
+h2{ break-after:avoid; }
+h3{ break-after:avoid; }
+pre,figure,table{ break-inside:avoid; }
+h1,h2,h3{ break-after:avoid-page; }

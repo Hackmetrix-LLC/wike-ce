@@ -1,0 +1,1616 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>admin — admin de la flota wik3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg:#0a0e1a; --panel:#10151f; --border:#1f2937;
+    --fg:#e2e8f0; --mute:#64748b; --accent:#22d3ee;
+    --ok:#5dd58a; --warn:#fbbf24; --err:#ef4444;
+    --crit:#ff0055; --high:#ff7700; --medium:#ffcc00; --low:#5ec2ff; --info:#7b8294;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; padding:14px; background:var(--bg); color:var(--fg);
+    font: 13px/1.45 ui-sans-serif, system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  h1 { margin:0 0 14px; font-size:18px; letter-spacing:.3px; }
+  h1 small { color: var(--mute); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  h2 { margin:14px 0 8px; font-size:11px; letter-spacing:.5px; color:var(--mute); text-transform:uppercase; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:10px 12px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > .panel { flex:1; min-width:180px; }
+
+  .big-num { font-size:24px; font-weight:700; line-height:1; }
+  .label { color:var(--mute); font-size:10px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:4px; }
+
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { padding:6px 8px; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--mute); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.4px; }
+  tr.wik3-row { cursor:pointer; }
+  tr.wik3-row:hover { background:rgba(34,211,238,.05); }
+  td.mono { font-family: ui-monospace, SF Mono, Menlo, monospace; font-size:11px; }
+  td.muted { color:var(--mute); }
+
+  .sev-pill {
+    display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px;
+    font-weight:700; text-transform:uppercase; letter-spacing:.4px;
+    border:1px solid currentColor; margin-right:3px;
+  }
+  .sev-pill.critical { background:rgba(255,0,85,.12); color:var(--crit); }
+  .sev-pill.high { background:rgba(255,119,0,.12); color:var(--high); }
+  .sev-pill.medium { background:rgba(255,204,0,.12); color:var(--medium); }
+  .sev-pill.low { background:rgba(94,194,255,.12); color:var(--low); }
+  .sev-pill.info, .sev-pill.unknown { background:rgba(123,130,148,.12); color:var(--info); }
+
+  .review-pill { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; border:1px solid currentColor; white-space:nowrap; }
+  .review-pill.review-pending        { background:rgba(123,130,148,.12); color:var(--info); }
+  .review-pill.review-validated      { background:rgba(80,200,120,.14); color:#5dd58a; }
+  .review-pill.review-false_positive { background:rgba(255,0,85,.10); color:var(--crit); }
+  .review-pill.review-wont_fix       { background:rgba(255,119,0,.12); color:var(--high); }
+
+  /* Findings del admin: validados destacados, el resto opaco (foco en lo real). */
+  #findings-detail-table tr.frow-dim { opacity:.4; }
+  #findings-detail-table tr.frow-validated { background:rgba(80,200,120,.08); box-shadow:inset 3px 0 0 var(--ok); }
+
+  .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; vertical-align:middle; margin-right:6px; }
+  .status-dot.ok { background:var(--ok); }
+  .status-dot.warn { background:var(--warn); }
+  .status-dot.err { background:var(--err); }
+
+  .detail { background:#0e1320; border-top:1px dashed var(--border); padding:8px 12px; font-size:11.5px; }
+  .detail h4 { margin:0 0 4px; font-size:10px; color:var(--mute); text-transform:uppercase; letter-spacing:.4px; }
+  .detail .empty { color:var(--mute); font-style:italic; }
+  .btn { display:inline-block; background:var(--accent); color:#001028; border:none; padding:5px 12px; border-radius:4px; font-weight:700; font-size:11px; cursor:pointer; text-decoration:none; }
+  .btn:hover { opacity:.85; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.ghost { background:transparent; color:var(--mute); border:1px solid var(--border); }
+  .btn.danger { background:var(--err); color:#fff; padding:2px 8px; font-size:10px; }
+  .btn-refresh { background:var(--accent); color:#001028; border:none; padding:4px 10px; border-radius:4px; font-weight:700; font-size:11px; cursor:pointer; }
+  .btn-refresh:hover { opacity:.85; }
+  .btn-refresh:disabled { opacity:.5; cursor:not-allowed; }
+  .adm-tabs { display:flex; gap:2px; margin:16px 0 4px; border-bottom:1px solid var(--border); }
+  .adm-tab { background:transparent; border:none; color:var(--mute); padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; }
+  .adm-tab:hover { color:var(--fg); }
+  .adm-tab.active { color:var(--fg); border-bottom-color:var(--accent); }
+  .muted-small { color:var(--mute); font-size:10px; }
+
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:100; }
+  .modal-overlay[hidden] { display:none; }
+  .modal-card { background:var(--panel); border:1px solid var(--border); border-radius:6px; min-width:380px; max-width:90vw; max-height:90vh; overflow:auto; }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .modal-head h3 { margin:0; font-size:13px; }
+  .modal-body { padding:14px; font-size:12px; }
+  .modal-body label { display:block; margin-bottom:4px; font-size:11px; color:var(--mute); }
+  .modal-body input[type=email], .modal-body input[type=text] { width:100%; padding:6px 8px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box; }
+  .result-grid { display:grid; grid-template-columns:auto 1fr; gap:6px 12px; font-size:12px; align-items:baseline; }
+  .result-grid code { background:var(--bg); padding:2px 6px; border-radius:3px; font-family:ui-monospace,monospace; font-size:11px; word-break:break-all; }
+  .err-msg { color:var(--err); margin-top:8px; font-size:11px; }
+
+  #setup-overlay { position:fixed; inset:0; background:rgba(0,0,0,.92); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; overflow:auto; }
+  #setup-overlay[hidden] { display:none; }
+  #setup-overlay .panel { padding:22px; max-height:calc(100vh - 40px); overflow:auto; }
+  #setup-overlay h2 { margin:0 0 8px; font-size:14px; color:var(--fg); text-transform:none; letter-spacing:0; }
+  #setup-overlay p { margin:0 0 14px; color:var(--mute); font-size:12px; line-height:1.5; }
+  #setup-overlay label { display:block; margin-bottom:4px; font-size:11px; color:var(--mute); }
+  #setup-overlay input[type=text], #setup-overlay input[type=file] { width:100%; padding:6px 8px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px; font-family:inherit; font-size:13px; box-sizing:border-box; }
+  #setup-overlay input[type=file] { padding:4px; font-size:11px; }
+  #setup-overlay .row-input { margin-bottom:12px; }
+  #setup-overlay .palette-label { display:flex; align-items:center; gap:8px; margin:0; font-size:11px; color:var(--fg); }
+  #setup-overlay .palette-label input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--border); border-radius:3px; cursor:pointer; background:transparent; }
+  #brand-logo { height:22px; vertical-align:middle; margin-right:8px; border-radius:3px; }
+  /* Background image: lo aplicamos al body via JS si está configurada. */
+  body.has-bg { background-image: var(--brand-bg, none); background-size: cover; background-position: center center; background-attachment: fixed; }
+  body.has-bg::before { content:""; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:-1; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div id="setup-overlay" hidden>
+  <div class="panel" style="width:min(560px,94vw)">
+    <h2 id="setup-title">Configurar esta consola</h2>
+    <p id="setup-intro">Es la primera vez que abres esta instancia. Asígnale identidad y, si quieres, ajusta los colores. Después puedes volver a editarlo desde el botón ⚙ en el header.</p>
+    <div class="row-input">
+      <label for="setup-name">Nombre</label>
+      <input id="setup-name" type="text" placeholder="Ej: Hackmetrix Pentest Console" maxlength="80" autocomplete="off">
+    </div>
+    <div class="row-input">
+      <label for="setup-logo">Logo (PNG / JPG / SVG / WebP — max 1 MB, opcional)</label>
+      <input id="setup-logo" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp">
+    </div>
+    <div class="row-input">
+      <label for="setup-bg">Imagen de fondo (PNG / JPG / WebP — max 3 MB, opcional)</label>
+      <input id="setup-bg" type="file" accept="image/png,image/jpeg,image/webp">
+    </div>
+    <div class="row-input">
+      <label>Paleta de colores</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px 12px">
+        <label class="palette-label">Fondo<input type="color" id="setup-c-bg"></label>
+        <label class="palette-label">Paneles<input type="color" id="setup-c-panel"></label>
+        <label class="palette-label">Acento<input type="color" id="setup-c-accent"></label>
+        <label class="palette-label">Texto<input type="color" id="setup-c-fg"></label>
+      </div>
+      <div class="muted-small" style="margin-top:4px">Para volver a los defaults: <a href="#" id="palette-reset" style="color:var(--accent);text-decoration:underline">reset</a>.</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+      <button class="btn ghost" id="setup-cancel" hidden>cancelar</button>
+      <button class="btn" id="setup-submit">Guardar</button>
+    </div>
+    <div class="muted-small" id="setup-msg" style="margin-top:8px;min-height:14px"></div>
+  </div>
+</div>
+
+<h1 id="main-header">
+  <img id="brand-logo" alt="" hidden>
+  <span id="brand-name">admin</span>
+  <small id="admin-meta">cargando…</small>
+  <span style="float:right;display:inline-flex;gap:6px;align-items:center">
+    <small class="muted-small" id="sync-meta">sync: —</small>
+    <a class="btn" id="btn-export-csv" href="/api/export/findings.csv" download>📥 CSV</a>
+    <button class="btn ghost" id="btn-costs" type="button" title="Costo LLM + compute por wik3">💰 Costos</button>
+    <button class="btn ghost" id="btn-edit-brand" title="editar branding" style="padding:4px 8px">⚙</button>
+    <button class="btn-refresh" id="btn-refresh">↻ refrescar</button>
+  </span>
+</h1>
+
+<div id="findings-modal" class="modal-overlay" hidden>
+  <div class="modal-card" style="width:min(960px,94vw)">
+    <div class="modal-head">
+      <h3 id="findings-modal-title">Findings</h3>
+      <button class="btn ghost" id="findings-modal-close">cerrar ✕</button>
+    </div>
+    <div class="modal-body" style="padding:0;max-height:calc(90vh - 60px);overflow:auto">
+      <table id="findings-detail-table">
+        <thead><tr>
+          <th>Severidad</th><th>ID</th><th>Título</th><th>Fase</th><th>Review</th><th>Por</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="findings-detail-empty" class="muted-small" style="padding:14px;text-align:center;display:none">sin findings para este engagement</div>
+    </div>
+  </div>
+</div>
+
+<div id="costs-modal" class="modal-overlay" hidden>
+  <div class="modal-card" style="width:min(1100px,96vw)">
+    <div class="modal-head">
+      <h3 style="margin:0">💰 Costos por wik3</h3>
+      <span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center">
+        <label class="muted-small">Período:
+          <select id="costs-days" style="background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:3px 6px;font-size:12px">
+            <option value="7" selected>últimos 7 días</option>
+            <option value="14">últimos 14 días</option>
+            <option value="30">últimos 30 días</option>
+            <option value="90">últimos 90 días</option>
+          </select>
+        </label>
+        <button class="btn ghost" id="costs-refresh" type="button">↻</button>
+        <button class="btn ghost" id="costs-modal-close" type="button">cerrar ✕</button>
+      </span>
+    </div>
+    <div class="modal-body" style="max-height:calc(90vh - 60px);overflow:auto">
+      <div class="row" id="costs-totals-row" style="margin-bottom:10px">
+        <div class="panel"><div class="label">LLM (USD)</div><div class="big-num" id="costs-t-llm">—</div></div>
+        <div class="panel"><div class="label">Compute (USD)</div><div class="big-num" id="costs-t-compute">—</div></div>
+        <div class="panel"><div class="label">Total (USD)</div><div class="big-num" id="costs-t-total">—</div></div>
+        <div class="panel"><div class="label">Período</div><div class="big-num" id="costs-t-period">—</div><div class="muted-small" id="costs-t-since">—</div></div>
+      </div>
+      <div id="costs-loading" class="muted" style="padding:14px;text-align:center;display:none">cargando journals de wik3s…</div>
+      <table id="costs-table">
+        <thead><tr>
+          <th>wik3</th><th>hacker</th><th>machine</th>
+          <th style="text-align:right">horas</th>
+          <th style="text-align:right">$ compute</th>
+          <th style="text-align:right">$ LLM</th>
+          <th style="text-align:right">$ total</th>
+          <th>engagements</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="costs-notes" class="muted-small" style="padding:12px;border-top:1px solid var(--border);margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<div id="retest-history-modal" class="modal-overlay" hidden>
+  <div class="modal-card" style="width:min(960px,94vw)">
+    <div class="modal-head">
+      <h3 id="retest-history-modal-title">📜 Historial de retests</h3>
+      <button class="btn ghost" id="retest-history-modal-close">cerrar ✕</button>
+    </div>
+    <div class="modal-body" style="max-height:calc(90vh - 60px);overflow:auto;font-size:13px;line-height:1.5">
+      <div id="retest-history-loading" class="muted" style="padding:14px;text-align:center;display:none">cargando…</div>
+      <div id="retest-history-empty" class="muted" style="padding:14px;text-align:center;display:none">sin runs registrados aún</div>
+      <div id="retest-history-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="adm-tabs">
+  <button class="adm-tab active" data-view="fleet" type="button">Flota</button>
+  <button class="adm-tab" data-view="week" type="button">Dashboard</button>
+  <button class="adm-tab" data-view="teams" type="button">Equipos</button>
+</div>
+
+<div id="view-fleet">
+
+<h2>Totales de la flota</h2>
+<div class="row" id="totals-row">
+  <div class="panel"><div class="label">wik3s</div><div class="big-num" id="t-wik3s">—</div><div class="muted-small" id="t-wik3s-detail">—</div></div>
+  <div class="panel"><div class="label">Engagements</div><div class="big-num" id="t-engagements">—</div></div>
+  <div class="panel"><div class="label">Findings validados (humano)</div><div class="big-num" id="t-validated">—</div><div class="muted-small" id="t-validated-detail">—</div></div>
+  <div class="panel"><div class="label">Pendientes de revisión</div><div class="big-num" id="t-pending">—</div></div>
+</div>
+
+<h2 style="display:flex;align-items:center;justify-content:space-between">
+  <span>Inventario de wik3s</span>
+  <span style="display:flex;gap:6px">
+    <button class="btn ghost" id="btn-broadcast" type="button" title="Enviar mensaje a todas las wik3s">📨 Broadcast</button>
+    <button class="btn" id="btn-new-wik3">+ Crear wik3</button>
+  </span>
+</h2>
+<div class="panel" style="padding:0">
+  <table id="wik3-table">
+    <thead><tr>
+      <th>Hacker</th><th>Activo</th><th>Engagements</th><th>Validadas</th><th>Pendientes</th><th title="% de findings revisados por el hacker (validadas + descartadas como FP + wont fix + mitigadas) sobre el total">% Rev.</th><th>Severidad</th><th></th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  <div id="wik3-empty" style="padding:14px;text-align:center;color:var(--mute);display:none">sin wik3s encontradas en el proyecto</div>
+</div>
+
+<!-- Modal: crear wik3 -->
+<div id="create-modal" class="modal-overlay" hidden>
+  <div class="modal-card" style="min-width:420px">
+    <div class="modal-head">
+      <h3>Crear wik3</h3>
+      <button class="btn ghost" onclick="closeCreateModal()">cerrar ✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="create-form">
+        <label for="create-email">Email del hacker</label>
+        <input type="email" id="create-email" placeholder="name@example.com" autocomplete="off">
+        <div class="err-msg" id="create-err" style="display:none"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn ghost" onclick="closeCreateModal()">cancelar</button>
+          <button class="btn" id="btn-submit-create">Crear (toma ~5 min)</button>
+        </div>
+      </div>
+      <div id="create-progress" hidden>
+        <p>Creando VM <code id="create-progress-name">...</code>... esto toma ~5 min (gcloud + IAM + boot del wik3-setup). No cierres esta ventana.</p>
+        <p class="muted-small">gcloud compute instances create + IAM bindings + startup script.</p>
+      </div>
+      <div id="create-result" hidden>
+        <h3 style="margin:0 0 10px;color:var(--ok)">✓ wik3 creada</h3>
+        <div class="result-grid">
+          <div>VM:</div><code id="res-vm">—</code>
+          <div>IP interna:</div><code id="res-ip">—</code>
+          <div>Hacker:</div><code id="res-hacker">—</code>
+          <div>Password:</div><code id="res-pass">—</code>
+          <div>Conectar:</div><code id="res-cmd">—</code>
+        </div>
+        <p class="muted-small" style="margin-top:10px">Comparte el comando con el hacker. La password también queda en este texto.</p>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end">
+          <button class="btn" onclick="closeCreateModal(); loadState();">Listo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: detalle técnico de la wik3 (VM name, IP, versión, etc.) -->
+<div id="details-modal" class="modal-overlay" hidden>
+  <div class="modal-card" style="min-width:480px;max-width:680px">
+    <div class="modal-head">
+      <h3 id="details-modal-title">Detalle de wik3</h3>
+      <button class="btn ghost" id="details-modal-close" type="button">cerrar ✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="details-grid" class="result-grid" style="font-size:13px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: enviar mensaje a wik3 (single o broadcast) -->
+<div id="message-modal" class="modal-overlay" hidden>
+  <div class="modal-card" style="min-width:480px;max-width:600px">
+    <div class="modal-head">
+      <h3 id="message-modal-title">Enviar mensaje</h3>
+      <button class="btn ghost" id="message-modal-close" type="button">cerrar ✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="message-target" class="muted-small" style="margin-bottom:8px"></div>
+      <textarea id="message-text" placeholder="Mensaje al hacker (aparece como modal en su wik3 hasta que lo marca leído)…" style="width:100%;min-height:120px;padding:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:13px;box-sizing:border-box"></textarea>
+      <div id="message-status" class="muted-small" style="margin-top:8px;min-height:16px"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn ghost" id="message-cancel" type="button">cancelar</button>
+        <button class="btn" id="message-send" type="button">Enviar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 style="display:flex;align-items:center;justify-content:space-between;margin-top:24px">
+  <span>Feedback — falsos positivos con nota
+    <span class="muted-small" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px"> · solo descartes del hacker con explicación. Eso es feedback accionable para tunear prompts.</span>
+  </span>
+  <span style="display:flex;gap:6px">
+    <button class="btn ghost" id="btn-fp-refresh" type="button" title="Re-sync wik3s y recargar">↻ Refrescar</button>
+    <a class="btn" id="btn-fp-download" href="/api/export/false-positives.csv" download>⬇ Descargar CSV</a>
+  </span>
+</h2>
+<div class="panel" style="padding:0">
+  <table id="fp-table">
+    <thead><tr>
+      <th>Sev</th><th>Wik3</th><th>Hacker</th><th>Engagement</th>
+      <th>ID</th><th>Título</th><th>Afectado</th><th>Marcada por</th><th>Cuándo</th><th>Nota</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  <div id="fp-empty" style="padding:14px;text-align:center;color:var(--mute);display:none">sin feedback aún · marca falsos positivos con nota desde el modal de cada wik3</div>
+</div>
+
+</div><!-- /view-fleet -->
+
+<div id="view-week" hidden>
+  <h2 style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:8px">
+    <span>Dashboard <span id="week-range" class="muted-small" style="font-weight:400"></span></span>
+    <span style="display:flex;gap:6px;align-items:center">
+      <select id="week-type" title="Filtrar por tipo de ejercicio" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px">
+        <option value="">todos los tipos</option>
+        <option value="blackbox">🕶 Blackbox</option>
+        <option value="webapp">🌐 WebApp</option>
+        <option value="mobile">📱 Mobile</option>
+        <option value="internal">🖥 Interno</option>
+        <option value="cloud">☁ Cloud</option>
+      </select>
+      <input id="week-only" type="text" list="week-only-list" placeholder="solo ejercicio… (ej: prestavale)" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;width:220px">
+      <datalist id="week-only-list"></datalist>
+      <input id="week-filter" type="text" placeholder="excluir engagements… (ej: hackmetrix)" style="background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;width:220px">
+      <button class="btn ghost" id="week-refresh" type="button">↻ Refrescar</button>
+    </span>
+  </h2>
+  <div id="week-loading" class="muted" style="padding:14px;text-align:center">cargando…</div>
+  <div class="row" style="margin-bottom:12px">
+    <div class="panel" style="text-align:center;flex:1">
+      <div class="label">% validadas que no fueron FP <span class="muted-small" style="font-weight:400">· 30 días</span></div>
+      <div class="big-num" id="week-prec" style="font-size:52px">—</div>
+      <div class="muted-small" id="week-prec-detail">—</div>
+    </div>
+    <div class="panel" style="text-align:center;flex:1">
+      <div class="label">% revisadas del total <span class="muted-small" style="font-weight:400">· últimos 100 proyectos</span></div>
+      <div class="big-num" id="week-pct" style="font-size:52px">—</div>
+      <div class="muted-small" id="week-pct-detail">—</div>
+    </div>
+    <div class="panel" style="text-align:center;flex:1">
+      <div class="label">Tiempo promedio de validación <span class="muted-small" style="font-weight:400">· 30 días</span></div>
+      <div class="big-num" id="week-ttv" style="font-size:52px">—</div>
+      <div class="muted-small" id="week-ttv-detail">—</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:14px">
+    <div class="label" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>Validadas por semana <span class="muted-small" style="font-weight:400">(por fecha de validación · últimas 8 semanas · toda la flota)</span></span>
+      <span id="valweek-ttv" class="muted-small" style="font-weight:400"></span>
+    </div>
+    <div id="valweek-loading" class="muted" style="padding:14px;text-align:center">cargando…</div>
+    <div id="valweek-wrap" style="display:none">
+      <div id="valweek-chart" style="overflow-x:auto"></div>
+      <div id="valweek-legend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--mute);margin:6px 2px 10px"></div>
+      <div id="valweek-meta" class="muted-small" style="margin-bottom:8px"></div>
+      <table id="valweek-table"></table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:14px;padding:0">
+    <div class="label" style="padding:12px 12px 0">Validadas por hacker <span class="muted-small" style="font-weight:400">(por fecha de validación · excluye importadas · desde el 8 jun)</span></div>
+    <table id="reviewhacker-table" style="display:none">
+      <thead><tr><th>Hacker</th><th style="text-align:center">Validadas (desde 8 jun)</th><th style="text-align:center">Tiempo prom. de validación · desde 8 jun</th><th style="text-align:center">Pendientes por validar (desde 8 jun)</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="reviewhacker-empty" class="muted" style="padding:14px;text-align:center">sin validaciones</div>
+  </div>
+</div>
+
+<div id="view-teams" hidden>
+  <h2 style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:8px">
+    <span>Equipos y roles</span>
+    <button class="btn" id="teams-save" type="button">Guardar</button>
+  </h2>
+  <div class="muted-small" style="margin-bottom:10px">Asigna cada hacker a un equipo y su rol. El <b>Team Lead</b> ve una pestaña "Equipo" en su propio wik3 con los pendientes de validar de su equipo (push cada 5 min; solo su equipo).</div>
+  <div class="panel" style="padding:0">
+    <table id="teams-table"><thead><tr><th>Hacker</th><th>Equipo</th><th>Rol</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div id="teams-msg" class="muted-small" style="margin-top:10px"></div>
+</div>
+
+<script>
+const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+// "hace N días" desde un ISO timestamp (última corrida de un engagement).
+function daysSince(iso) {
+  if (!iso) return "sin runs";
+  const t = Date.parse(iso);
+  if (isNaN(t)) return "—";
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) return "hoy";
+  if (days === 1) return "hace 1 día";
+  return `hace ${days} días`;
+}
+
+function sevPills(bySev) {
+  const order = ["critical","high","medium","low","info"];
+  return order
+    .filter(k => (bySev || {})[k])
+    .map(k => `<span class="sev-pill ${k}">${k} ${bySev[k]}</span>`)
+    .join("") || `<span class="muted-small">—</span>`;
+}
+
+async function loadState() {
+  const btn = document.getElementById("btn-refresh");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+    render(s);
+  } catch (e) {
+    document.getElementById("admin-meta").textContent = "error: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function render(s) {
+  const j = s.admin || {};
+  const v = j.version || {};
+  const vbits = [v.image, v.commit && `@${v.commit}`].filter(Boolean).join(" ");
+  const meta = `${j.instance_name || "—"} · ${vbits || "version ?"} · proyecto ${j.project_id || "—"} · admin ${j.admin_email || "—"} · token ${j.admin_token_present ? "✓" : "✗"}`;
+  document.getElementById("admin-meta").textContent = meta;
+
+  const totals = (s.metrics && s.metrics.totals) || {};
+  document.getElementById("t-wik3s").textContent = totals.wik3s_total ?? 0;
+  document.getElementById("t-wik3s-detail").textContent =
+    `${totals.wik3s_reachable ?? 0} / ${totals.wik3s_total ?? 0} alcanzables`;
+  document.getElementById("t-engagements").textContent = totals.engagements ?? 0;
+  document.getElementById("t-validated").textContent = totals.human_validated ?? 0;
+  document.getElementById("t-validated-detail").innerHTML = sevPills(totals.human_validated_by_severity);
+  document.getElementById("t-pending").textContent =
+    (totals.review_by_status && totals.review_by_status.pending) ?? 0;
+
+  renderWik3s(s.wik3s || []);
+}
+
+function renderWik3s(wik3s) {
+  const tbody = document.querySelector("#wik3-table tbody");
+  const empty = document.getElementById("wik3-empty");
+  tbody.innerHTML = "";
+  if (!wik3s.length) { empty.style.display = "block"; return; }
+  empty.style.display = "none";
+  // Lista de instancias (para el "mover engagement a otra wik3").
+  ALL_WIK3 = wik3s.map(w => ({ name: w.name, email: w.hacker_email || "" }));
+  let expandedTr = null, expandedW = null;
+  wik3s.forEach(w => {
+    const reachable = !!w.summary;
+    const t = (w.summary && w.summary.totals) || {};
+    const dot = reachable ? "ok" : (w.status === "RUNNING" ? "warn" : "err");
+    const tr = document.createElement("tr");
+    tr.className = "wik3-row";
+    const error = w.summary_error ? `<span class="muted-small">${esc(w.summary_error)}</span>` : "";
+    // % revisadas = findings triados por el hacker (cualquier estado != pending:
+    // validated, false_positive, wont_fix, mitigated) / total. Descartar un FP
+    // ES revisar → cuenta para el %, aunque la vuln no sea válida.
+    const rbs = (t && t.review_by_status) || {};
+    const totalFindings = Object.values(rbs).reduce((a, b) => a + (b || 0), 0);
+    const pendingN = rbs.pending || 0;
+    const reviewedN = totalFindings - pendingN;
+    const pctVal = totalFindings ? Math.round(100 * reviewedN / totalFindings) : null;
+    const v = (w.summary && w.summary.version) || {};
+    const versionHtml = reachable
+      ? `<span class="mono" style="font-size:10px">${esc(v.image || "?")}${v.code_commit ? `<br><span class="muted">@${esc(v.code_commit)}</span>` : ""}</span>`
+      : "—";
+    const activeRun = reachable ? (w.summary.active_run || null) : null;
+    let activeCell;
+    if (activeRun) {
+      activeCell = `<span title="${esc(activeRun)}" style="color:var(--ok);font-weight:700">🟢 ${esc(activeRun.slice(0, 24))}${activeRun.length > 24 ? "…" : ""}</span>`;
+    } else if (reachable) {
+      const lr = w.summary.last_run_at || null;
+      activeCell = `<span class="muted-small" title="${lr ? "último run: " + esc(lr) : "nunca corrió un engagement"}">${esc(daysSince(lr))}</span>`;
+    } else {
+      activeCell = `<span class="muted-small">—</span>`;
+    }
+    tr.innerHTML = `
+      <td><span class="status-dot ${dot}" title="${reachable ? "alcanzable" : esc(w.status || "?")}"></span>${esc(w.hacker_email || "—")} ${error}</td>
+      <td>${activeCell}</td>
+      <td>${reachable ? (t.engagements ?? 0) : "—"}</td>
+      <td>${reachable ? (t.human_validated ?? 0) : "—"}</td>
+      <td>${reachable ? ((t.review_by_status || {}).pending ?? 0) : "—"}</td>
+      <td>${reachable ? (pctVal === null ? "—" : pctVal + "%") : "—"}</td>
+      <td>${reachable ? sevPills(t.human_validated_by_severity) : "—"}</td>
+      <td style="white-space:nowrap">
+        <button class="btn ghost btn-details" data-vm="${esc(w.name)}" title="ver detalle de la VM (nombre, IP, versión)" style="padding:4px 8px;margin-right:4px" type="button">ⓘ</button>
+        <button class="btn ghost btn-msg" data-vm="${esc(w.name)}" title="enviar mensaje" style="padding:4px 8px;margin-right:4px" type="button">📨</button>
+        <button class="btn danger" data-vm="${esc(w.name)}">borrar</button>
+      </td>
+    `;
+    tr.querySelector(".btn.danger").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      deleteWik3(w.name);
+    });
+    tr.querySelector(".btn-msg").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openMessageModal(w.name);
+    });
+    tr.querySelector(".btn-details").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openDetailsModal(w);
+    });
+    tr.onclick = () => toggleDetail(tr, w);
+    tbody.appendChild(tr);
+    if (EXPANDED_VM && w.name === EXPANDED_VM) { expandedTr = tr; expandedW = w; }
+  });
+  // Re-expande la VM que estaba abierta (con data fresca) tras el refresh.
+  if (expandedTr) openDetail(expandedTr, expandedW);
+}
+
+// VM cuya fila de engagements está expandida. Se preserva entre refreshes
+// (loadState corre cada 30s y reconstruye la tabla) para no cerrarla sola.
+let EXPANDED_VM = null;
+let ALL_WIK3 = [];   // [{name, email}] — para mover engagements entre instancias
+function toggleDetail(tr, w) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("detail-row")) {
+    next.remove();
+    EXPANDED_VM = null;
+    return;
+  }
+  EXPANDED_VM = w.name;
+  openDetail(tr, w);
+}
+function openDetail(tr, w) {
+  const drow = document.createElement("tr");
+  drow.className = "detail-row";
+  const td = document.createElement("td");
+  td.colSpan = 8;
+  td.className = "detail";
+  if (!w.summary) {
+    td.innerHTML = `<span class="empty">sin datos (${esc(w.summary_error || "no alcanzable")})</span>`;
+  } else {
+    const engs = w.summary.engagements || [];
+    if (!engs.length) {
+      td.innerHTML = `<h4>Engagements</h4><span class="empty">aún no hay engagements en esta wik3</span>`;
+    } else {
+      const rows = engs.map(e => `
+        <tr class="eng-row" data-eng-slug="${esc(e.slug)}">
+          <td class="mono">${esc(e.slug)}</td>
+          <td>${e.active_run ? "🟢 corriendo" : "—"}</td>
+          <td>${e.passive ?? 0}</td>
+          <td>${e.active ?? 0}</td>
+          <td>${e.imported ?? 0}</td>
+          <td>${e.human_validated ?? 0}</td>
+          <td>${sevPills(e.human_validated_by_severity)}</td>
+          <td style="white-space:nowrap">
+            <button class="btn ghost btn-eng-findings" data-vm="${esc(w.name)}" data-slug="${esc(e.slug)}" style="padding:3px 8px;font-size:11px" type="button" title="ver findings">🔎 Findings</button>
+            <button class="btn ghost btn-eng-retest" data-vm="${esc(w.name)}" data-slug="${esc(e.slug)}" style="padding:3px 8px;font-size:11px" type="button" title="ver historial de retests">📜 Retests</button>
+            <button class="btn ghost btn-eng-move" data-vm="${esc(w.name)}" data-slug="${esc(e.slug)}" ${e.active_run ? "disabled title='no se puede mover un engagement corriendo'" : "title='mover a otra wik3'"} style="padding:3px 8px;font-size:11px" type="button">↪ Mover</button>
+          </td>
+        </tr>
+      `).join("");
+      td.innerHTML = `
+        <h4>Engagements en ${esc(w.name)}</h4>
+        <table style="font-size:11px">
+          <thead><tr>
+            <th>Slug</th><th>Run</th><th>Passive</th><th>Active</th><th>Importadas</th><th>Humano OK</th><th>Severidad</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+      td.querySelectorAll(".btn-eng-findings").forEach(b => {
+        b.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          openFindingsModal(b.dataset.vm, b.dataset.slug);
+        });
+      });
+      td.querySelectorAll(".btn-eng-retest").forEach(b => {
+        b.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          openRetestHistoryModal(b.dataset.vm, b.dataset.slug);
+        });
+      });
+      td.querySelectorAll(".btn-eng-move").forEach(b => {
+        b.addEventListener("click", (ev) => { ev.stopPropagation(); moveEngagement(b.dataset.vm, b.dataset.slug); });
+      });
+    }
+  }
+  drow.appendChild(td);
+  tr.after(drow);
+}
+
+// Mover un engagement a otra wik3: pide el destino y llama /api/move-engagement.
+async function moveEngagement(fromVm, slug) {
+  const targets = ALL_WIK3.filter(w => w.name !== fromVm);
+  if (!targets.length) { alert("No hay otra instancia wik3 a la que mover."); return; }
+  const list = targets.map((w, i) => `${i + 1}. ${w.name}${w.email ? " (" + w.email + ")" : ""}`).join("\n");
+  const pick = prompt(`Mover "${slug}" desde ${fromVm} a:\n\n${list}\n\nEscribe el NÚMERO de la instancia destino:`);
+  if (pick == null) return;
+  const idx = parseInt(pick.trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= targets.length) { alert("Selección inválida."); return; }
+  const toVm = targets[idx].name;
+  if (!confirm(`Mover "${slug}":\n  ${fromVm}  →  ${toVm}\n\nCopia el engagement (sin exec.log) al destino y lo borra del origen. ¿Confirmas?`)) return;
+  try {
+    const r = await fetch("/api/move-engagement", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, from_vm: fromVm, to_vm: toVm }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert("Error: " + (d.error || r.status) + (d.detail ? "\n" + JSON.stringify(d.detail) : "")); return; }
+    alert(`✓ "${slug}" movido a ${toVm}.` + (d.warning ? "\n⚠ " + d.warning : ""));
+    loadState();
+  } catch (e) { alert("Error: " + (e.message || e)); }
+}
+
+document.getElementById("btn-refresh").addEventListener("click", loadState);
+
+// ── Costos por wik3 ──
+async function loadCosts() {
+  const days = document.getElementById("costs-days").value || "7";
+  const tbody = document.querySelector("#costs-table tbody");
+  const loading = document.getElementById("costs-loading");
+  loading.style.display = "block";
+  tbody.innerHTML = "";
+  document.getElementById("costs-notes").textContent = "";
+  let data;
+  try {
+    const r = await fetch(`/api/costs?days=${encodeURIComponent(days)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    data = await r.json();
+  } catch (e) {
+    loading.textContent = "Error: " + e.message;
+    return;
+  } finally {
+    loading.style.display = "none";
+  }
+  const t = data.totals || {};
+  const fmt = n => "$" + (Number(n) || 0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById("costs-t-llm").textContent = fmt(t.llm_usd);
+  document.getElementById("costs-t-compute").textContent = fmt(t.compute_usd);
+  document.getElementById("costs-t-total").textContent = fmt(t.grand_total_usd);
+  document.getElementById("costs-t-period").textContent = `${data.period_days || days} días`;
+  document.getElementById("costs-t-since").textContent = `desde ${(data.since || "").slice(0,10)}`;
+  (data.by_wik3 || []).forEach(w => {
+    const tr = document.createElement("tr");
+    const engs = Object.entries(w.by_engagement || {});
+    const engsHtml = engs.length
+      ? engs.map(([slug, e]) => `<div class="muted-small"><code>${esc(slug)}</code> · ${fmt(e.total_usd)}</div>`).join("")
+      : `<span class="muted-small">—</span>`;
+    tr.innerHTML = `
+      <td class="mono">${esc(w.name)}</td>
+      <td class="muted">${esc(w.hacker_email || "—")}</td>
+      <td class="muted-small">${esc(w.machine_type || "—")} <span class="muted-small">($${(w.hourly_usd||0).toFixed(4)}/h)</span></td>
+      <td style="text-align:right">${(w.hours_active || 0).toFixed(0)}h</td>
+      <td style="text-align:right">${fmt(w.compute_usd)}</td>
+      <td style="text-align:right">${w.llm_error ? `<span class="muted-small" title="${esc(w.llm_error)}">err</span>` : fmt(w.llm_usd)}</td>
+      <td style="text-align:right"><strong>${fmt(w.total_usd)}</strong></td>
+      <td>${engsHtml}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  if ((data.by_wik3 || []).length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="muted" style="text-align:center;padding:14px">sin wik3s</td></tr>`;
+  }
+  const notes = (data.notes || []);
+  document.getElementById("costs-notes").innerHTML = notes.map(n => `· ${esc(n)}`).join("<br>");
+}
+document.getElementById("btn-costs").addEventListener("click", () => {
+  document.getElementById("costs-modal").hidden = false;
+  loadCosts();
+});
+document.getElementById("costs-modal-close").addEventListener("click", () => {
+  document.getElementById("costs-modal").hidden = true;
+});
+document.getElementById("costs-refresh").addEventListener("click", loadCosts);
+document.getElementById("costs-days").addEventListener("change", loadCosts);
+
+// ── Mensaje a wik3 (single o broadcast) ──
+// MESSAGE_TARGET = null  → broadcast a todas
+// MESSAGE_TARGET = "vm"  → solo esa wik3
+let MESSAGE_TARGET = null;
+function openMessageModal(vmName) {
+  MESSAGE_TARGET = vmName || null;
+  const title = document.getElementById("message-modal-title");
+  const target = document.getElementById("message-target");
+  if (vmName) {
+    title.textContent = "Enviar mensaje";
+    target.innerHTML = `Destino: <code>${esc(vmName)}</code>`;
+  } else {
+    title.textContent = "Broadcast a todas las wik3s";
+    target.textContent = "Destino: todas las wik3s alcanzables";
+  }
+  document.getElementById("message-text").value = "";
+  document.getElementById("message-status").textContent = "";
+  document.getElementById("message-status").style.color = "var(--mute)";
+  document.getElementById("message-send").disabled = false;
+  document.getElementById("message-modal").hidden = false;
+  setTimeout(() => document.getElementById("message-text").focus(), 50);
+}
+function closeMessageModal() {
+  document.getElementById("message-modal").hidden = true;
+  MESSAGE_TARGET = null;
+}
+async function sendMessage() {
+  const text = document.getElementById("message-text").value.trim();
+  const statusEl = document.getElementById("message-status");
+  const sendBtn = document.getElementById("message-send");
+  if (!text) {
+    statusEl.textContent = "el mensaje no puede estar vacío";
+    statusEl.style.color = "var(--crit)";
+    return;
+  }
+  sendBtn.disabled = true;
+  statusEl.textContent = "enviando…";
+  statusEl.style.color = "var(--mute)";
+  try {
+    const url = MESSAGE_TARGET
+      ? `/api/wik3s/${encodeURIComponent(MESSAGE_TARGET)}/message`
+      : "/api/broadcast/message";
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    if (MESSAGE_TARGET) {
+      statusEl.textContent = `✓ enviado a ${MESSAGE_TARGET}`;
+    } else {
+      const fail = data.total - data.ok;
+      statusEl.textContent = `✓ enviado a ${data.ok}/${data.total}${fail ? ` · ${fail} falló` : ""}`;
+    }
+    statusEl.style.color = "var(--ok)";
+    setTimeout(closeMessageModal, 900);
+  } catch (e) {
+    statusEl.textContent = `error: ${e.message || e}`;
+    statusEl.style.color = "var(--crit)";
+    sendBtn.disabled = false;
+  }
+}
+document.getElementById("btn-broadcast").addEventListener("click", () => openMessageModal(null));
+document.getElementById("message-modal-close").addEventListener("click", closeMessageModal);
+document.getElementById("message-cancel").addEventListener("click", closeMessageModal);
+document.getElementById("message-send").addEventListener("click", sendMessage);
+document.getElementById("message-modal").addEventListener("click", (e) => {
+  if (e.target.id === "message-modal") closeMessageModal();
+});
+
+// ── Modal de detalles técnicos de la wik3 ──
+// Muestra info que antes vivía en columnas dedicadas (VM, IP, Versión).
+// Mover esto a un modal libera columnas en la tabla principal y deja foco
+// en lo accionable (status, engagements, severidades).
+function openDetailsModal(w) {
+  const grid = document.getElementById("details-grid");
+  document.getElementById("details-modal-title").textContent = `Detalle de wik3 — ${w.hacker_email || w.name}`;
+  const summary = w.summary || {};
+  const v = summary.version || {};
+  const t = summary.totals || {};
+  const reviewByStatus = t.review_by_status || {};
+  const rows = [
+    ["VM (nombre)", `<code>${esc(w.name || "—")}</code>`],
+    ["Hacker", esc(w.hacker_email || "—")],
+    ["IP interna", `<code>${esc(w.internal_ip || "—")}</code>`],
+    ["Status", `<span class="status-dot ${w.summary ? "ok" : (w.status === "RUNNING" ? "warn" : "err")}"></span>${esc(w.status || "?")}`],
+    ["Imagen", v.image ? `<code>${esc(v.image)}</code>` : "—"],
+    ["Code commit", v.code_commit ? `<code>@${esc(v.code_commit)}</code>` : "—"],
+    ["Engagement activo", summary.active_run ? `<code>${esc(summary.active_run)}</code>` : "—"],
+    ["Engagements totales", t.engagements != null ? String(t.engagements) : "—"],
+    ["Findings validados (humano)", t.human_validated != null ? String(t.human_validated) : "—"],
+    ["Findings pendientes (review)", reviewByStatus.pending != null ? String(reviewByStatus.pending) : "—"],
+  ];
+  if (w.summary_error) rows.push(["Error de comunicación", `<span class="muted-small">${esc(w.summary_error)}</span>`]);
+  grid.innerHTML = rows.map(([k, v]) => `<div>${esc(k)}:</div><div>${v}</div>`).join("");
+  document.getElementById("details-modal").hidden = false;
+}
+function closeDetailsModal() {
+  document.getElementById("details-modal").hidden = true;
+}
+document.getElementById("details-modal-close").addEventListener("click", closeDetailsModal);
+document.getElementById("details-modal").addEventListener("click", (e) => {
+  if (e.target.id === "details-modal") closeDetailsModal();
+});
+
+// ── Crear wik3 ──
+function openCreateModal() {
+  document.getElementById("create-form").hidden = false;
+  document.getElementById("create-progress").hidden = true;
+  document.getElementById("create-result").hidden = true;
+  document.getElementById("create-err").style.display = "none";
+  document.getElementById("create-email").value = "";
+  document.getElementById("create-modal").hidden = false;
+  setTimeout(() => document.getElementById("create-email").focus(), 50);
+}
+function closeCreateModal() {
+  document.getElementById("create-modal").hidden = true;
+}
+
+async function submitCreate() {
+  const email = document.getElementById("create-email").value.trim().toLowerCase();
+  if (!email) return;
+  document.getElementById("create-form").hidden = true;
+  document.getElementById("create-progress").hidden = false;
+  document.getElementById("create-progress-name").textContent = email;
+  try {
+    const r = await fetch("/api/wik3s", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      // volver al form mostrando el error
+      document.getElementById("create-form").hidden = false;
+      document.getElementById("create-progress").hidden = true;
+      const errEl = document.getElementById("create-err");
+      errEl.textContent = "error: " + (data.error || r.statusText);
+      errEl.style.display = "block";
+      return;
+    }
+    document.getElementById("create-progress").hidden = true;
+    document.getElementById("create-result").hidden = false;
+    document.getElementById("res-vm").textContent = data.vm_name;
+    document.getElementById("res-ip").textContent = data.internal_ip || "—";
+    document.getElementById("res-hacker").textContent = data.hacker_email;
+    document.getElementById("res-pass").textContent = data.dashboard_password;
+    document.getElementById("res-cmd").textContent = data.hacker_command;
+  } catch (e) {
+    document.getElementById("create-form").hidden = false;
+    document.getElementById("create-progress").hidden = true;
+    const errEl = document.getElementById("create-err");
+    errEl.textContent = "error de red: " + (e.message || e);
+    errEl.style.display = "block";
+  }
+}
+
+async function deleteWik3(vmName) {
+  if (!confirm(`¿Borrar ${vmName}?\n\nDestruye la VM y limpia el binding IAP del proyecto. Los engagements (y findings validados) se pierden.`)) {
+    return;
+  }
+  try {
+    const r = await fetch(`/api/wik3s/${encodeURIComponent(vmName)}`, { method: "DELETE" });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      alert("error: " + (data.error || r.statusText));
+      return;
+    }
+    loadState();
+  } catch (e) {
+    alert("error de red: " + (e.message || e));
+  }
+}
+
+document.getElementById("btn-new-wik3").addEventListener("click", openCreateModal);
+document.getElementById("btn-submit-create").addEventListener("click", submitCreate);
+document.getElementById("create-email").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitCreate();
+});
+document.querySelectorAll(".modal-overlay").forEach(o => {
+  o.addEventListener("click", (e) => { if (e.target === o) o.hidden = true; });
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.querySelectorAll(".modal-overlay").forEach(o => o.hidden = true);
+});
+
+// ── Branding (primer acceso + edición) ──
+const DEFAULT_PALETTE = {
+  bg: "#0a0e1a", panel: "#10151f", accent: "#22d3ee", fg: "#e2e8f0",
+};
+
+function applyPalette(p) {
+  const palette = { ...DEFAULT_PALETTE, ...(p || {}) };
+  const root = document.documentElement.style;
+  root.setProperty("--bg", palette.bg);
+  root.setProperty("--panel", palette.panel);
+  root.setProperty("--accent", palette.accent);
+  root.setProperty("--fg", palette.fg);
+}
+
+function applyBackground(hasBg) {
+  if (hasBg) {
+    document.body.style.setProperty("--brand-bg", `url("/branding/bg?v=${Date.now()}")`);
+    document.body.classList.add("has-bg");
+  } else {
+    document.body.classList.remove("has-bg");
+    document.body.style.removeProperty("--brand-bg");
+  }
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(file);
+  });
+}
+
+function openSetupWizard(brand) {
+  const isEdit = !!(brand && brand.configured);
+  document.getElementById("setup-title").textContent = isEdit ? "Editar branding" : "Configurar esta consola";
+  document.getElementById("setup-intro").textContent = isEdit
+    ? "Actualiza nombre, logo, fondo o paleta. Los campos que dejes vacíos no se reemplazan."
+    : "Es la primera vez que abres esta instancia. Asígnale identidad y, si quieres, ajusta los colores. Después puedes volver a editarlo desde el botón ⚙ en el header.";
+  document.getElementById("setup-cancel").hidden = !isEdit;
+  document.getElementById("setup-name").value = (brand && brand.name) || "";
+  document.getElementById("setup-logo").value = "";
+  document.getElementById("setup-bg").value = "";
+  const palette = (brand && brand.palette) || DEFAULT_PALETTE;
+  document.getElementById("setup-c-bg").value = palette.bg || DEFAULT_PALETTE.bg;
+  document.getElementById("setup-c-panel").value = palette.panel || DEFAULT_PALETTE.panel;
+  document.getElementById("setup-c-accent").value = palette.accent || DEFAULT_PALETTE.accent;
+  document.getElementById("setup-c-fg").value = palette.fg || DEFAULT_PALETTE.fg;
+  document.getElementById("setup-msg").textContent = "";
+  document.getElementById("setup-overlay").hidden = false;
+  setTimeout(() => document.getElementById("setup-name").focus(), 50);
+}
+
+async function loadBranding() {
+  try {
+    const r = await fetch("/api/branding", { cache: "no-store" });
+    const data = await r.json();
+    applyPalette(data.palette);
+    applyBackground(!!data.has_bg);
+    if (!data.configured) {
+      openSetupWizard(null);
+      return false;
+    }
+    const nameEl = document.getElementById("brand-name");
+    const logoEl = document.getElementById("brand-logo");
+    if (data.name) nameEl.textContent = data.name;
+    if (data.has_logo) {
+      logoEl.src = "/branding/logo?v=" + Date.now();
+      logoEl.hidden = false;
+    } else {
+      logoEl.hidden = true;
+    }
+    document.title = (data.name || "admin") + " — admin";
+    return true;
+  } catch (e) {
+    console.warn("branding load failed", e);
+    return true;
+  }
+}
+
+async function submitBrand() {
+  const name = document.getElementById("setup-name").value.trim();
+  const logoFile = document.getElementById("setup-logo").files[0];
+  const bgFile = document.getElementById("setup-bg").files[0];
+  const msg = document.getElementById("setup-msg");
+  const btn = document.getElementById("setup-submit");
+  msg.textContent = "";
+  msg.style.color = "var(--mute)";
+  if (!name) { msg.textContent = "el nombre es obligatorio"; msg.style.color = "var(--err)"; return; }
+
+  const payload = {
+    name,
+    logo_b64: "", logo_content_type: "",
+    bg_b64: "",   bg_content_type: "",
+    palette: {
+      bg:     document.getElementById("setup-c-bg").value,
+      panel:  document.getElementById("setup-c-panel").value,
+      accent: document.getElementById("setup-c-accent").value,
+      fg:     document.getElementById("setup-c-fg").value,
+    },
+  };
+  if (logoFile) {
+    if (logoFile.size > 1024 * 1024) { msg.textContent = `logo demasiado grande (${(logoFile.size/1024).toFixed(0)} KB, max 1024 KB)`; msg.style.color = "var(--err)"; return; }
+    try { payload.logo_b64 = await readFileAsBase64(logoFile); payload.logo_content_type = logoFile.type || "image/png"; }
+    catch (e) { msg.textContent = "no pude leer el logo: " + e; msg.style.color = "var(--err)"; return; }
+  }
+  if (bgFile) {
+    if (bgFile.size > 3 * 1024 * 1024) { msg.textContent = `fondo demasiado grande (${(bgFile.size/1024).toFixed(0)} KB, max 3072 KB)`; msg.style.color = "var(--err)"; return; }
+    try { payload.bg_b64 = await readFileAsBase64(bgFile); payload.bg_content_type = bgFile.type || "image/png"; }
+    catch (e) { msg.textContent = "no pude leer el fondo: " + e; msg.style.color = "var(--err)"; return; }
+  }
+
+  btn.disabled = true;
+  msg.textContent = "guardando…";
+  try {
+    const r = await fetch("/api/branding/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    document.getElementById("setup-overlay").hidden = true;
+    await loadBranding();
+    loadState();
+  } catch (e) {
+    msg.textContent = "error: " + (e.message || e);
+    msg.style.color = "var(--err)";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("setup-submit").addEventListener("click", submitBrand);
+document.getElementById("setup-cancel").addEventListener("click", () => {
+  document.getElementById("setup-overlay").hidden = true;
+});
+document.getElementById("palette-reset").addEventListener("click", (e) => {
+  e.preventDefault();
+  document.getElementById("setup-c-bg").value = DEFAULT_PALETTE.bg;
+  document.getElementById("setup-c-panel").value = DEFAULT_PALETTE.panel;
+  document.getElementById("setup-c-accent").value = DEFAULT_PALETTE.accent;
+  document.getElementById("setup-c-fg").value = DEFAULT_PALETTE.fg;
+});
+document.getElementById("btn-edit-brand").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/branding", { cache: "no-store" });
+    openSetupWizard(await r.json());
+  } catch {
+    openSetupWizard(null);
+  }
+});
+
+// ── Findings detail por engagement + CSV export ──
+function fmtMins(iso) {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "—";
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return "ahora";
+  if (m < 60) return `hace ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h}h`;
+  return `hace ${Math.floor(h / 24)}d`;
+}
+
+async function refreshSyncMeta() {
+  try {
+    const r = await fetch("/api/sync/status", { cache: "no-store" });
+    const s = await r.json();
+    const el = document.getElementById("sync-meta");
+    if (!s.at) {
+      el.textContent = "sync: nunca";
+      return;
+    }
+    el.textContent = `sync: ${fmtMins(s.at)} · ${s.findings_total} vulns`;
+    el.title = `${s.wik3s_reachable}/${s.wik3s_total} wik3s · ${s.added} nuevas · ${s.updated} actualizadas`;
+  } catch {}
+}
+
+async function openFindingsModal(wik3Name, engagementSlug) {
+  document.getElementById("findings-modal-title").textContent = `${wik3Name} · ${engagementSlug}`;
+  const tbody = document.querySelector("#findings-detail-table tbody");
+  const empty = document.getElementById("findings-detail-empty");
+  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--mute);padding:14px">cargando…</td></tr>`;
+  empty.style.display = "none";
+  document.getElementById("findings-modal").hidden = false;
+  try {
+    const r = await fetch(`/api/engagements/${encodeURIComponent(wik3Name)}/${encodeURIComponent(engagementSlug)}/findings`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const findings = data.findings || [];
+    if (!findings.length) {
+      tbody.innerHTML = "";
+      empty.style.display = "block";
+      empty.textContent = "sin findings en este engagement (lanza sync si la wik3 los reportó hace poco)";
+      return;
+    }
+    tbody.innerHTML = findings.map(f => {
+      const sev = (f.severity || "unknown").toLowerCase();
+      const reviewClass = (f.review_status || "pending").replace(/[^a-z_]/gi, "_");
+      const rowCls = (f.review_status || "").toLowerCase() === "validated" ? "frow-validated" : "frow-dim";
+      return `
+        <tr class="${rowCls}">
+          <td><span class="sev-pill ${sev}">${sev}</span></td>
+          <td class="mono">${esc(f.finding_id || "")}</td>
+          <td>${esc(f.title || "")}</td>
+          <td class="muted">${esc(f.phase || "")}</td>
+          <td><span class="review-pill review-${esc(reviewClass)}">${esc(f.review_status || "pending")}</span></td>
+          <td class="muted-small">${esc(f.review_by || "")}${f.review_at ? ` · ${esc(f.review_at.slice(0,10))}` : ""}</td>
+        </tr>`;
+    }).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--err);padding:14px">error: ${esc(e.message || e)}</td></tr>`;
+  }
+}
+
+document.getElementById("findings-modal-close").addEventListener("click", () => {
+  document.getElementById("findings-modal").hidden = true;
+});
+document.getElementById("findings-modal").addEventListener("click", (e) => {
+  if (e.target.id === "findings-modal") e.target.hidden = true;
+});
+
+// ── Modal historial de retests (admin) ──
+const RETEST_PILL = {
+  mitigated: { color: "var(--ok)", bg: "rgba(80,200,120,.14)", label: "MITIGADA" },
+  vulnerable: { color: "var(--crit)", bg: "rgba(255,0,85,.10)", label: "VULNERABLE" },
+  inconclusive: { color: "var(--warn)", bg: "rgba(251,191,36,.12)", label: "INCONCLUSIVE" },
+  no_retest: { color: "var(--mute)", bg: "rgba(123,130,148,.12)", label: "SIN RETEST" },
+  skipped: { color: "var(--mute)", bg: "rgba(123,130,148,.12)", label: "SKIPPED" },
+  timeout: { color: "var(--warn)", bg: "rgba(251,191,36,.12)", label: "TIMEOUT" },
+  error: { color: "var(--crit)", bg: "rgba(255,0,85,.10)", label: "ERROR" },
+};
+function retestPill(s) {
+  const cfg = RETEST_PILL[s] || RETEST_PILL.error;
+  return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:.4px;border:1px solid currentColor;color:${cfg.color};background:${cfg.bg}">${cfg.label}</span>`;
+}
+
+async function openRetestHistoryModal(vmName, engagementSlug) {
+  document.getElementById("retest-history-modal-title").textContent = `📜 Retests · ${vmName} · ${engagementSlug}`;
+  const listEl = document.getElementById("retest-history-list");
+  const loading = document.getElementById("retest-history-loading");
+  const empty = document.getElementById("retest-history-empty");
+  listEl.innerHTML = "";
+  loading.style.display = "block";
+  empty.style.display = "none";
+  document.getElementById("retest-history-modal").hidden = false;
+  try {
+    const r = await fetch(`/api/wik3s/${encodeURIComponent(vmName)}/engagements/${encodeURIComponent(engagementSlug)}/retest`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    loading.style.display = "none";
+    const runs = data.runs || [];
+    if (!runs.length) {
+      empty.style.display = "block";
+      return;
+    }
+    listEl.innerHTML = runs.map((run, idx) => {
+      const ts = (run.timestamp || run.file || "").replace("T", " ");
+      const by = run.by_status || {};
+      const summary = Object.entries(by).map(([s, n]) => `${retestPill(s)} ${n}`).join("  ") || `<span class="muted">sin resultados</span>`;
+      const rows = (run.results || []).map(x => `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:4px 6px">${retestPill(x.status)}</td>
+          <td style="padding:4px 6px"><span class="sev-pill ${esc((x.severity || "unknown").toLowerCase())}">${esc(x.severity || "?")}</span></td>
+          <td style="padding:4px 6px"><code style="font-size:11px">${esc(x.id)}</code><br><span class="muted-small">${esc(x.title || "")}</span></td>
+          <td style="padding:4px 6px;font-size:11px;color:var(--mute)">${esc(x.evidence || "")}</td>
+        </tr>`).join("");
+      return `
+        <details style="border:1px solid var(--border);border-radius:4px;margin-bottom:8px"${idx === 0 ? " open" : ""}>
+          <summary style="cursor:pointer;padding:8px 10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span style="font-family:ui-monospace,monospace;font-size:12px;font-weight:700">${esc(ts)}</span>
+            <span class="muted-small">${run.total ?? (run.results || []).length} vulns</span>
+            <span style="margin-left:auto">${summary}</span>
+          </summary>
+          <div style="padding:0 10px 10px">
+            <table style="width:100%;font-size:12px;border-collapse:collapse">
+              <thead><tr style="text-align:left;border-bottom:1px solid var(--border);color:var(--mute);font-size:10.5px">
+                <th style="padding:4px 6px">Status</th><th style="padding:4px 6px">Sev</th><th style="padding:4px 6px">ID · Título</th><th style="padding:4px 6px">Evidence</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </details>`;
+    }).join("");
+  } catch (e) {
+    loading.style.display = "none";
+    listEl.innerHTML = `<div style="color:var(--crit);padding:14px;text-align:center">error: ${esc(e.message || e)}</div>`;
+  }
+}
+document.getElementById("retest-history-modal-close").addEventListener("click", () => {
+  document.getElementById("retest-history-modal").hidden = true;
+});
+document.getElementById("retest-history-modal").addEventListener("click", (e) => {
+  if (e.target.id === "retest-history-modal") e.target.hidden = true;
+});
+document.getElementById("btn-export-csv").addEventListener("click", () => {
+  // Mientras se descarga el CSV (el server hace sync + dump), refrescamos
+  // el indicador con un pequeño delay para que el operador vea el resultado.
+  setTimeout(refreshSyncMeta, 4000);
+});
+
+// ── Feedback — falsos positivos ──
+async function loadFalsePositives() {
+  const btn = document.getElementById("btn-fp-refresh");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/api/feedback/false-positives", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    renderFalsePositives(data.items || []);
+  } catch (e) {
+    const tbody = document.querySelector("#fp-table tbody");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:var(--crit);padding:12px">error: ${esc(e.message || e)}</td></tr>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+function renderFalsePositives(items) {
+  const tbody = document.querySelector("#fp-table tbody");
+  const empty = document.getElementById("fp-empty");
+  tbody.innerHTML = "";
+  if (!items.length) { empty.style.display = "block"; return; }
+  empty.style.display = "none";
+  items.forEach(it => {
+    const sev = (it.severity || "unknown").toLowerCase();
+    const affected = Array.isArray(it.affected) ? it.affected.join(", ") : (it.affected || "");
+    const at = (it.review_at || "").replace("T", " ").replace("Z", "").slice(0, 16);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="sev-pill ${sev}">${esc(sev)}</span></td>
+      <td class="mono" style="font-size:11px">${esc(it.wik3_name)}</td>
+      <td>${esc(it.hacker_email || "—")}</td>
+      <td class="muted">${esc(it.engagement_slug || "—")}</td>
+      <td class="mono" style="font-size:11px">${esc(it.finding_id || "")}</td>
+      <td>${esc(it.title || "")}</td>
+      <td class="muted" style="max-width:200px;font-size:11px">${esc(affected).slice(0, 80)}</td>
+      <td class="muted-small">${esc(it.review_by || "—")}</td>
+      <td class="muted-small">${esc(at)}</td>
+      <td style="max-width:320px;font-size:12px">${esc(it.review_note || "")}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById("btn-fp-refresh")?.addEventListener("click", loadFalsePositives);
+
+// ── Validación por semana (gráfico % validadas/encontradas) ──
+const VALWEEK_COLORS = { critical:"#ff0055", high:"#ff7700", medium:"#ffcc00", low:"#5ec2ff", info:"#7b8294", total:"#22d3ee" };
+const VALWEEK_LABELS = { critical:"Critical", high:"High", medium:"Medium", low:"Low", info:"Info", total:"Total" };
+function fmtWeek(iso){ const d = new Date(iso + "T00:00:00Z"); return d.toLocaleDateString("es", { day:"numeric", month:"short", timeZone:"UTC" }); }
+
+async function loadValidationWeekly(){
+  const loading = document.getElementById("valweek-loading");
+  const wrap = document.getElementById("valweek-wrap");
+  const only = (document.getElementById("week-only")?.value || "").trim();
+  const excl = (document.getElementById("week-filter")?.value || "").trim();
+  const etype = (document.getElementById("week-type")?.value || "").trim();
+  const qs = new URLSearchParams();
+  if (only) qs.set("only", only);
+  if (excl) qs.set("exclude", excl);
+  if (etype) qs.set("type", etype);
+  let data;
+  try {
+    const r = await fetch("/api/validation-weekly" + (qs.toString() ? "?" + qs : ""), { cache:"no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    data = await r.json();
+  } catch (e) {
+    if (loading){ loading.textContent = "Error: " + (e.message || e); loading.style.display = "block"; }
+    if (wrap) wrap.style.display = "none";
+    return;
+  }
+  const weeks = data.weeks || [];
+  const sevs = data.severities || ["critical","high","medium","low","info"];
+  const ttv = data.ttv || {};
+  renderReviewHackers(data.hackers || []);   // tabla por hacker, independiente del gráfico
+  const totalVal = weeks.reduce((a,w) => a + (w.validated_total || 0), 0);
+  if (!weeks.length || !totalVal){
+    if (loading){ loading.textContent = "Aún no hay validaciones en las últimas 8 semanas."; loading.style.display = "block"; }
+    if (wrap) wrap.style.display = "none";
+    return;
+  }
+  if (loading) loading.style.display = "none";
+  if (wrap) wrap.style.display = "block";
+  const totalFound = weeks.reduce((a,w) => a + (w.found_total || 0), 0);
+  const totalFp = weeks.reduce((a,w) => a + (w.fp_total || 0), 0);
+  document.getElementById("valweek-meta").textContent = `${weeks.length} semanas · ${totalVal} validadas · ${totalFp} FP · ${totalFound} descubiertas (línea) en total`;
+  const ttvEl = document.getElementById("valweek-ttv");
+  if (ttvEl){
+    ttvEl.textContent = ttv.median_days != null ? `Tiempo mediano de validación: ${ttv.median_days} días` : "";
+    ttvEl.title = ttv.count ? `${ttv.count} vulns con fecha · promedio ${ttv.avg_days}d · p90 ${ttv.p90_days}d` : "";
+  }
+  renderValweekChart(weeks, sevs);
+  renderValweekTable(weeks, sevs);
+}
+
+function renderValweekChart(weeks, sevs){
+  const n = weeks.length;
+  const W = Math.max(560, n * 90), H = 260, padL = 34, padR = 12, padT = 16, padB = 28;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  // La escala incluye descubiertas (línea) y la barra apilada validadas+FP.
+  const maxV = Math.max(1, ...weeks.map(w => Math.max((w.validated_total || 0) + (w.fp_total || 0), w.found_total || 0)));
+  const step = Math.max(1, Math.ceil(maxV / 4)), top = step * 4;
+  const FP_COLOR = "#a855f7";  // violeta: FP (revisadas pero descartadas, no válidas)
+  const bw = Math.min(54, (innerW / n) * 0.6);
+  const cx = i => padL + innerW * (i + 0.5) / n;
+  const y = v => padT + innerH * (1 - v / top);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;font-family:inherit">`;
+  for (let g = 0; g <= top; g += step){
+    svg += `<line x1="${padL}" y1="${y(g)}" x2="${W-padR}" y2="${y(g)}" stroke="var(--border)" stroke-width="1"/>`;
+    svg += `<text x="${padL-5}" y="${y(g)+3}" text-anchor="end" font-size="10" fill="var(--mute)">${g}</text>`;
+  }
+  weeks.forEach((wk,i) => {
+    let acc = 0;
+    sevs.forEach(s => {
+      const v = wk["validated_" + s] || 0;
+      if (!v) return;
+      const y0 = y(acc), y1 = y(acc + v);
+      svg += `<rect x="${cx(i)-bw/2}" y="${y1}" width="${bw}" height="${Math.max(0,y0-y1)}" fill="${VALWEEK_COLORS[s]}"><title>${VALWEEK_LABELS[s]}: ${v}</title></rect>`;
+      acc += v;
+    });
+    const tot = wk.validated_total || 0;
+    const valTop = acc;   // tope de la porción validada (para el número de validadas)
+    // FP apilado encima (violeta): revisadas por el hacker pero descartadas.
+    const fp = wk.fp_total || 0;
+    if (fp){
+      const y0 = y(acc), y1 = y(acc + fp);
+      svg += `<rect x="${cx(i)-bw/2}" y="${y1}" width="${bw}" height="${Math.max(0,y0-y1)}" fill="${FP_COLOR}" opacity="0.85"><title>FP (descartadas): ${fp}</title></rect>`;
+      acc += fp;
+    }
+    if (tot) svg += `<text x="${cx(i)}" y="${y(valTop)-3}" text-anchor="middle" font-size="10" fill="var(--fg)">${tot}</text>`;
+    if (fp) svg += `<text x="${cx(i)}" y="${y(acc)-3}" text-anchor="middle" font-size="9" fill="${FP_COLOR}">+${fp}</text>`;
+    svg += `<text x="${cx(i)}" y="${H-9}" text-anchor="middle" font-size="10" fill="var(--mute)">${fmtWeek(wk.week)}</text>`;
+  });
+  // Línea de DESCUBIERTAS por semana (por first_seen) — contrasta generadas vs validadas.
+  const FOUND_COLOR = "#e5e7eb";
+  const pts = weeks.map((wk,i) => `${cx(i)},${y(wk.found_total || 0)}`).join(" ");
+  svg += `<polyline points="${pts}" fill="none" stroke="${FOUND_COLOR}" stroke-width="2" stroke-dasharray="5 3" opacity="0.9"/>`;
+  weeks.forEach((wk,i) => {
+    const fv = wk.found_total || 0;
+    svg += `<circle cx="${cx(i)}" cy="${y(fv)}" r="3" fill="${FOUND_COLOR}"><title>Descubiertas: ${fv}</title></circle>`;
+    if (fv) svg += `<text x="${cx(i)}" y="${y(fv)-6}" text-anchor="middle" font-size="10" fill="${FOUND_COLOR}">${fv}</text>`;
+  });
+  svg += `</svg>`;
+  document.getElementById("valweek-chart").innerHTML = svg;
+  document.getElementById("valweek-legend").innerHTML =
+    `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:14px;height:0;border-top:2px dashed ${FOUND_COLOR};display:inline-block"></span>Descubiertas</span>` +
+    sevs.map(s =>
+      `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:${VALWEEK_COLORS[s]};display:inline-block;border-radius:2px"></span>${VALWEEK_LABELS[s]} (validadas)</span>`
+    ).join("") +
+    `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:${FP_COLOR};opacity:0.85;display:inline-block;border-radius:2px"></span>FP (descartadas)</span>`;
+}
+
+function renderValweekTable(weeks, sevs){
+  const head = `<thead><tr><th>Semana</th>${sevs.map(s => `<th style="text-align:center">${VALWEEK_LABELS[s]}</th>`).join("")}<th style="text-align:center">Validadas</th><th style="text-align:center" title="descartadas como falso positivo">FP</th><th style="text-align:center">Descubiertas</th><th style="text-align:center">T. validación</th></tr></thead>`;
+  const rows = weeks.map(wk => {
+    const cells = sevs.map(s => {
+      const v = wk["validated_" + s] || 0;
+      return v ? `<td style="text-align:center">${v}</td>` : `<td style="text-align:center" class="muted-small">—</td>`;
+    }).join("");
+    const tot = wk.validated_total || 0;
+    const fp = wk.fp_total || 0;
+    const found = wk.found_total || 0;
+    const ttv = wk.ttv_median_days;
+    return `<tr><td class="mono">${fmtWeek(wk.week)}</td>${cells}<td style="text-align:center"><b>${tot || "—"}</b></td><td style="text-align:center">${fp ? `<span style="color:#a855f7">${fp}</span>` : "—"}</td><td style="text-align:center" class="muted-small">${found || "—"}</td><td style="text-align:center" class="muted-small">${ttv == null ? "—" : ttv + "d"}</td></tr>`;
+  }).join("");
+  document.getElementById("valweek-table").innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+function renderReviewHackers(hackers){
+  const tbl = document.getElementById("reviewhacker-table");
+  const empty = document.getElementById("reviewhacker-empty");
+  const tbody = tbl ? tbl.querySelector("tbody") : null;
+  if (!tbl || !tbody) return;
+  if (!hackers.length){ tbl.style.display = "none"; empty.style.display = "block"; return; }
+  empty.style.display = "none"; tbl.style.display = "";
+  tbody.innerHTML = hackers.map(h => {
+    // (1) Validadas desde el 8 jun (DATA_SINCE).
+    // (2) Tiempo promedio de validación desde el 8 jun (first_seen → review_at).
+    // Más rápido = mejor: verde ≤3d, ámbar ≤7d, rojo >7d.
+    const ttv = h.ttv_avg_days;
+    // Si validó pero no hay muestras de ttv, es porque esas vulns no tienen una
+    // fecha de descubrimiento confiable (first_seen posterior a review_at — p. ej.
+    // importadas/recreadas con fechas de validación antiguas), no porque no haya
+    // validado. Tooltip honesto en vez del contradictorio "sin validaciones".
+    const ttvEmptyTip = (h.validated_since > 0)
+      ? `${h.validated_since} validada(s), pero sin fecha de descubrimiento confiable (first_seen posterior a review_at) — no se puede medir el tiempo`
+      : "sin validaciones desde el 8 jun";
+    let ttvCell = `<td style="text-align:center" class="muted-small" title="${ttvEmptyTip}">—</td>`;
+    if (ttv != null){
+      const tcol = ttv <= 3 ? "var(--ok)" : ttv <= 7 ? "var(--warn)" : "var(--err)";
+      const ttvTip = `Promedio sobre ${h.ttv_count} de ${h.validated_since} validada${h.validated_since === 1 ? "" : "s"} desde el 8 jun (las demás sin fecha de descubrimiento confiable)`;
+      ttvCell = `<td style="text-align:center" title="${ttvTip}"><b style="color:${tcol}">${ttv}d</b></td>`;
+    }
+    // (3) Pendientes por validar desde el 8 jun: findings sin validar ni descartar.
+    const pcol = h.pending > 30 ? "var(--err)" : h.pending > 10 ? "var(--warn)" : "var(--mute)";
+    return `<tr>
+      <td>${esc(h.hacker)}</td>
+      <td style="text-align:center"><b>${h.validated_since}</b></td>
+      ${ttvCell}
+      <td style="text-align:center" title="findings sin validar ni descartar (desde el 8 jun)"><b style="color:${pcol}">${h.pending}</b></td>
+    </tr>`;
+  }).join("");
+}
+
+// ── Tabs (Flota | Esta semana) ──
+document.querySelectorAll(".adm-tab").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".adm-tab").forEach(x => x.classList.toggle("active", x === b));
+  const v = b.dataset.view;
+  document.getElementById("view-fleet").style.display = (v === "fleet") ? "" : "none";
+  document.getElementById("view-week").hidden = (v !== "week");
+  document.getElementById("view-teams").hidden = (v !== "teams");
+  if (v === "week"){ loadThisWeek(); loadValidationWeekly(); }
+  if (v === "teams") loadTeams();
+}));
+
+// ── Equipos: asignar equipo + rol por hacker ──
+async function loadTeams(){
+  const tbody = document.querySelector("#teams-table tbody");
+  const msg = document.getElementById("teams-msg");
+  msg.textContent = "cargando…";
+  let data;
+  try { const r = await fetch("/api/teams", { cache:"no-store" }); if(!r.ok) throw new Error("HTTP "+r.status); data = await r.json(); }
+  catch(e){ msg.textContent = "Error: " + (e.message||e); return; }
+  msg.textContent = "";
+  const asg = data.assignments || {}, hackers = data.hackers || [];
+  const inp = 'background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px';
+  tbody.innerHTML = hackers.map(h => {
+    const a = asg[h] || {}, team = esc(a.team || ""), role = (a.role === "TL") ? "TL" : "hacker";
+    return `<tr data-h="${esc(h)}">
+      <td>${esc(h)}</td>
+      <td><input class="t-team" type="text" value="${team}" placeholder="(sin equipo)" style="${inp};width:180px"></td>
+      <td><select class="t-role" style="${inp}">
+        <option value="hacker"${role==="hacker"?" selected":""}>Hacker</option>
+        <option value="TL"${role==="TL"?" selected":""}>Team Lead</option>
+      </select></td></tr>`;
+  }).join("") || `<tr><td colspan="3" class="muted" style="padding:12px;text-align:center">sin hackers en el inventario</td></tr>`;
+}
+document.getElementById("teams-save")?.addEventListener("click", async () => {
+  const msg = document.getElementById("teams-msg");
+  const assignments = {}, teams = {};
+  document.querySelectorAll("#teams-table tbody tr[data-h]").forEach(tr => {
+    const h = tr.dataset.h;
+    const team = (tr.querySelector(".t-team")?.value || "").trim();
+    const role = tr.querySelector(".t-role")?.value || "hacker";
+    if (team){ assignments[h] = { team, role }; teams[team] = team; }
+  });
+  msg.textContent = "guardando…";
+  try {
+    const r = await fetch("/api/teams", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ teams, assignments }) });
+    if(!r.ok){ const j = await r.json().catch(()=>({})); throw new Error(j.error || ("HTTP "+r.status)); }
+    msg.textContent = "✓ guardado · empujando la tabla a los Team Leads…";
+  } catch(e){ msg.textContent = "Error: " + (e.message||e); }
+});
+
+// ── Dashboard: 3 métricas de validación, calculadas del CSV de findings ──
+// (1) % validadas que no fueron FP → review HUMANO de los últimos 30 días (por review_at)
+// (2) % validadas del total descubierto → últimos 100 proyectos (por fecha de engagement)
+// (3) tiempo promedio de validación (first_seen → review_at) → últimos 30 días
+let WEEK_ROWS = null, WEEK_IX = null;
+const NON_HUMAN_REV = new Set(["import","agent","auto",""]);
+// Cutoff global del dashboard: no se cuenta data anterior a esta fecha (data
+// vieja / de prueba). OJO: el server (server.py) tiene la misma constante
+// DATA_SINCE — si la cambias acá, cámbiala también allá.
+const DATA_SINCE = "2026-06-08";
+// Hackers excluidos de las métricas. Vacío por defecto; si definís
+// ADMIN_METRICS_EXCLUDE en el server, repetí esos emails acá.
+const METRICS_EXCLUDE_HACKERS = new Set();
+function dateOnly(s){ return (s || "").slice(0,10); }
+function daysDiff(aStr, bStr){
+  const a = Date.parse(aStr + "T00:00:00Z"), b = Date.parse(bStr + "T00:00:00Z");
+  if (isNaN(a) || isNaN(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+function parseCSV(text){
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (q){ if (c === '"'){ if (text[i+1] === '"'){ cur += '"'; i++; } else q = false; } else cur += c; }
+    else { if (c === '"') q = true; else if (c === ',') { row.push(cur); cur = ""; } else if (c === '\n'){ row.push(cur); rows.push(row); row = []; cur = ""; } else if (c !== '\r') cur += c; }
+  }
+  if (cur !== "" || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+async function loadThisWeek(){
+  const loading = document.getElementById("week-loading");
+  loading.style.display = "block"; loading.textContent = "cargando (re-sync de wik3s)…";
+  let text;
+  try { const r = await fetch("/api/export/findings.csv", { cache:"no-store" }); if (!r.ok) throw new Error("HTTP " + r.status); text = await r.text(); }
+  catch (e){ loading.textContent = "Error: " + (e.message || e); return; }
+  const rows = parseCSV(text); const hdr = rows.shift() || [];
+  const ix = {}; hdr.forEach((h,i) => ix[h] = i);
+  WEEK_ROWS = rows.filter(r => r.length >= hdr.length); WEEK_IX = ix;
+  // Poblar el datalist de "solo ejercicio" con los slugs (desde DATA_SINCE).
+  const dl = document.getElementById("week-only-list");
+  if (dl){
+    const slugs = [...new Set(WEEK_ROWS
+      .filter(r => (dateOnly(r[ix.first_seen]) || "") >= DATA_SINCE)
+      .map(r => r[ix.engagement_slug]).filter(Boolean))].sort();
+    dl.innerHTML = slugs.map(s => `<option value="${esc(s)}">`).join("");
+  }
+  loading.style.display = "none";
+  renderWeek();
+}
+function renderWeek(){
+  if (!WEEK_ROWS) return;
+  const ix = WEEK_IX;
+  const filter = (document.getElementById("week-filter").value || "").trim().toLowerCase();
+  const only = (document.getElementById("week-only").value || "").trim().toLowerCase();
+  const etype = (document.getElementById("week-type")?.value || "").trim().toLowerCase();
+  // excl(slug, r): descarta por exclusión, por "solo ejercicio", o por tipo.
+  const excl = (slug, r) => {
+    if (filter && slug.toLowerCase().includes(filter)) return true;
+    if (only && !slug.toLowerCase().includes(only)) return true;
+    if (etype){
+      const types = (r[ix.engagement_types] || "").toLowerCase();
+      if (!types.split(",").map(s => s.trim()).includes(etype)) return true;
+    }
+    return false;
+  };
+  const t = new Date();
+  const today = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
+  const cutoff30raw = new Date(today.getTime() - 29*86400000).toISOString().slice(0,10);  // últimos 30 días
+  const cutoff30 = cutoff30raw > DATA_SINCE ? cutoff30raw : DATA_SINCE;  // nunca antes de DATA_SINCE
+
+  let pv = 0, pfp = 0;          // (1) precisión (review humano por review_at, desde cutoff)
+  let ttvSum = 0, ttvN = 0;     // (3) tiempo promedio de validación
+  const engCreated = {};        // slug -> fecha de creación del engagement
+  const engRows = {};           // slug -> filas (para cobertura últimos 100 proyectos)
+  WEEK_ROWS.forEach(r => {
+    const slug = r[ix.engagement_slug] || "";
+    if (excl(slug, r)) return;
+    // Cuentas listadas en METRICS_EXCLUDE_HACKERS: fuera de las métricas.
+    if (METRICS_EXCLUDE_HACKERS.has((r[ix.hacker_email] || "").trim().toLowerCase())) return;
+    // Vulns de reportes importados: no son trabajo de wik3 → fuera de métricas.
+    if ((r[ix.phase] || "").trim().toLowerCase() === "imported" || (r[ix.review_by] || "").trim().toLowerCase() === "import") return;
+    // Cutoff global: ignorar findings descubiertos antes de DATA_SINCE.
+    const fs = dateOnly(r[ix.first_seen]);
+    if (fs && fs < DATA_SINCE) return;
+    const rs = (r[ix.review_status] || "").toLowerCase();
+    const by = (r[ix.review_by] || "").trim().toLowerCase();
+    const rat = dateOnly(r[ix.review_at]);
+    // validada con review_at previo a first_seen → importada con review viejo (dato
+    // inconsistente): no cuenta como validación real en ninguna métrica.
+    const inconsistent = (rs === "validated" && fs && rat && rat < fs);
+    if (rat && rat >= cutoff30 && !inconsistent){
+      if ((rs === "validated" || rs === "false_positive") && !NON_HUMAN_REV.has(by)){
+        if (rs === "validated") pv++; else pfp++;
+      }
+      if (rs === "validated" && by !== "import"){
+        const d = daysDiff(dateOnly(r[ix.first_seen]), rat);
+        if (d != null && d >= 0){ ttvSum += d; ttvN++; }
+      }
+    }
+    (engRows[slug] || (engRows[slug] = [])).push(r);
+    if (engCreated[slug] === undefined){
+      engCreated[slug] = dateOnly(r[ix.engagement_created_at]) || dateOnly(r[ix.engagement_started_at]) || dateOnly(r[ix.first_seen]) || "";
+    }
+  });
+
+  // (1) % validadas que no fueron FP — últimos 30 días, review humano
+  const pjudged = pv + pfp;
+  const prec = pjudged ? Math.round(100 * pv / pjudged) : 0;
+  const precEl = document.getElementById("week-prec");
+  precEl.textContent = pjudged ? prec + "%" : "—";
+  precEl.style.color = !pjudged ? "var(--fg)" : prec >= 60 ? "var(--ok)" : prec >= 35 ? "var(--warn)" : "var(--err)";
+  document.getElementById("week-prec-detail").textContent = pjudged ? `${pv} validadas · ${pfp} FP · de ${pjudged} juzgadas (review humano)` : "nada juzgado en 30 días";
+
+  // (2) % revisadas del total descubierto — últimos 100 proyectos.
+  // Revisada = el hacker le puso un estado (validated + false_positive +
+  // wont_fix + mitigated). Descartar un FP también es revisión → cuenta.
+  const REVIEWED_ST = new Set(["validated", "false_positive", "wont_fix", "mitigated"]);
+  const slugs = Object.keys(engRows).sort((a,b) => (engCreated[b] || "").localeCompare(engCreated[a] || ""));
+  const top = slugs.slice(0, 100);
+  let crev = 0, cf = 0;
+  top.forEach(slug => engRows[slug].forEach(r => {
+    if ((r[ix.review_by] || "").trim().toLowerCase() === "import") return;   // importadas: no son descubiertas por wik3
+    cf++;
+    if (REVIEWED_ST.has((r[ix.review_status] || "").toLowerCase())) crev++;
+  }));
+  const pct = cf ? Math.round(100 * crev / cf) : 0;
+  document.getElementById("week-pct").textContent = cf ? pct + "%" : "—";
+  document.getElementById("week-pct-detail").textContent = cf ? `${crev} revisadas · ${cf} descubiertas · ${top.length} proyectos${filter ? ` · excl. "${filter}"` : ""}` : "sin proyectos";
+
+  // (3) tiempo promedio de validación — últimos 30 días
+  const ttvEl = document.getElementById("week-ttv");
+  ttvEl.textContent = ttvN ? (Math.round(ttvSum / ttvN * 10) / 10) + "d" : "—";
+  document.getElementById("week-ttv-detail").textContent = ttvN ? `first_seen → review_at · ${ttvN} validadas` : "sin validaciones en 30 días";
+
+  const rangeEl = document.getElementById("week-range");
+  if (rangeEl) rangeEl.textContent = "precisión 30d · cobertura últimos 100 proyectos";
+}
+// input → re-render instantáneo de las 3 métricas (client-side, sin refetch).
+// change → recargar gráfico + tabla por hacker (server-side, con el filtro).
+document.getElementById("week-filter")?.addEventListener("input", () => { if (WEEK_ROWS) renderWeek(); });
+document.getElementById("week-filter")?.addEventListener("change", () => loadValidationWeekly());
+document.getElementById("week-only")?.addEventListener("input", () => { if (WEEK_ROWS) renderWeek(); });
+document.getElementById("week-only")?.addEventListener("change", () => loadValidationWeekly());
+document.getElementById("week-type")?.addEventListener("change", () => { if (WEEK_ROWS) renderWeek(); loadValidationWeekly(); });
+document.getElementById("week-refresh")?.addEventListener("click", () => { loadThisWeek(); loadValidationWeekly(); });
+
+loadBranding();
+loadState();
+loadFalsePositives();
+refreshSyncMeta();
+setInterval(refreshSyncMeta, 30000);
+// Re-cargar feedback junto con el sync periódico, así queda fresco.
+setInterval(loadFalsePositives, 60000);
+// auto-refresh cada 30s
+setInterval(loadState, 30000);
+</script>
+</body>
+</html>

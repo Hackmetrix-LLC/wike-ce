@@ -1,0 +1,223 @@
+digraph Wik3 {
+    graph [
+        goal="{{ goal }}",
+        model_stylesheet="
+            *                  { model: claude-sonnet-4-6; reasoning_effort: medium; }
+            box                { reasoning_effort: high; }
+            tab                { reasoning_effort: low; }
+            #detect_mode       { model: claude-haiku-4-5; reasoning_effort: low; }
+            #retest            { model: claude-sonnet-4-6; reasoning_effort: high; }
+            #recon             { model: claude-sonnet-4-6; reasoning_effort: medium; }
+            #passive_analyze   { model: claude-sonnet-4-6; reasoning_effort: high; }
+            #active_analyze    { model: claude-sonnet-4-6; reasoning_effort: high; }
+            #validate_chain    { model: claude-opus-4-7; reasoning_effort: xhigh; }
+            #validate_chain_fallback { model: claude-opus-4-7; reasoning_effort: high; }
+            #senior_review     { model: claude-opus-4-7; reasoning_effort: high; }
+            #check_discoveries { model: claude-haiku-4-5; reasoning_effort: low; }
+            #coverage_scan     { model: claude-haiku-4-5; reasoning_effort: low; }
+            #fix_recon         { model: claude-sonnet-4-6; reasoning_effort: high; }
+            #fix_validate_chain { model: claude-sonnet-4-6; reasoning_effort: high; }
+        "
+    ]
+    rankdir=LR
+
+    start [shape=Mdiamond, label="Start"]
+    exit  [shape=Msquare, label="Exit"]
+
+    load_engagement [
+        label="Load Engagement",
+        shape=parallelogram,
+        script="bash fabro/workflows/wik3/scripts/load_engagement.sh '{{ goal }}'"
+    ]
+
+    detect_mode [
+        label="Detect Mode",
+        prompt="@prompts/detect-mode.md",
+        fidelity="truncate",
+        max_tokens=200
+    ]
+
+    // Gate DETERMINISTICO (no es decisión del agente): un test de shell decide la
+    // rama por exit code. exit 0 (no hay manifiesto) → run normal; exit 1 (existe
+    // $WIK3_DIR/retest-targets.json, lo escribe el dashboard) → modo retest.
+    retest_detect [
+        label="Retest?",
+        shape=parallelogram,
+        script="test ! -e /workspace/wik3/$(cat /workspace/wik3/.active-slug 2>/dev/null)/retest-targets.json",
+        max_retries=0
+    ]
+
+    // Modo RETEST: NO hace recon/passive/active. Solo re-prueba las vulns del
+    // manifiesto, una por una, y marca su estado (vulnerable/mitigated/
+    // missing_creds/inconclusive) con vuln.sh retest.
+    retest [
+        label="Retest",
+        prompt="@prompts/retest.md",
+        timeout="1800s",
+        max_retries=3,
+        fidelity="summary:medium"
+    ]
+
+    recon [
+        label="Surface Recon",
+        prompt="@prompts/recon.md",
+        timeout="2700s",   // 45 min (subido de 30; el selfaware_guard frena el derroche de fuerza bruta)
+        goal_gate=true,
+        retry_target="fix_recon",
+        max_retries=3           // recover-from-stream-error: reintenta en flakes del provider (backoff 5s/10s/20s). Distinto de retry_target=fix_recon, que dispara en goal_gate fail.
+    ]
+
+    fix_recon [
+        label="Fix Recon",
+        prompt="El nodo recon fallo. Lee el output del run y el goal, diagnostica la causa (toolchain faltante, target inalcanzable, output mal formateado), corrige lo que puedas (ej: regenerar archivos de $WIK3_DIR/recon/, probar comandos alternativos) y deja el estado listo para reintentar recon. Si la falla es irrecuperable (ej: target caido), emite {\"context_updates\": {\"recon_abort\": true}} y explica en 2 lineas.",
+        max_visits=2,
+        timeout="600s"
+    ]
+
+    passive_analyze [
+        label="Passive Analyze",
+        prompt="@prompts/passive-analyze.md",
+        timeout="2100s",   // 35 min máx por iteración (subido de 25; selfaware_guard frena el derroche)
+        max_visits=21,  // workaround Fabro 0.207 (visit-limit no emite terminal event): hasta 20 iters (cap configurable, default 5) del discovery loop → max=21.
+        max_retries=3,  // recover-from-stream-error: reintenta en flakes del provider (backoff 5s/10s/20s).
+        fidelity="summary:medium"
+    ]
+
+    mode_gate [shape=diamond, label="Mode?"]
+
+    // Gate: ¿hay hallazgos sin validar desde la última corrida? Si no, saltea
+    // validate_chain Y senior_review (ambos Opus, caros) y va directo a
+    // coverage_scan. El flag context.needs_validation lo emite active (o passive
+    // en modo pasivo).
+    validate_gate [shape=diamond, label="¿Hallazgos nuevos?"]
+
+    // Gate: en modo prueba rápida (context.quick_test=true) salta Senior Review
+    // (QA de reporte, puro overhead para un smoke-test/CTF). Si no, QA normal.
+    senior_gate [shape=diamond, label="Senior?"]
+
+    active_analyze [
+        label="Active Analyze",
+        prompt="@prompts/active-analyze.md",
+        timeout="2100s",   // 35 min máx por iteración (subido de 25; el nodo se auto-cierra antes guardando wip.md)
+        max_visits=21,  // workaround Fabro 0.207 (visit-limit no emite terminal event): hasta 20 iters (cap configurable, default 5) del discovery loop → max=21.
+        max_retries=3,  // recover-from-stream-error: reintenta en flakes del provider (backoff 5s/10s/20s).
+        fidelity="summary:medium"
+    ]
+
+    validate_chain [
+        label="Validate & Chain",
+        prompt="@prompts/validate-chain.md",
+        timeout="1500s",         // 25 min máx (Opus 4.7 xhigh; si se corta cae al fallback/retry)
+        goal_gate=true,
+        retry_target="fix_validate_chain",
+        max_retries=3,           // reintento auto en stream/timeout errors (LLM infra); backoff exponencial 5s/10s/20s
+        max_visits=21,  // workaround Fabro 0.207 (visit-limit no emite terminal event): hasta 20 iters (cap configurable, default 5) → max=21.
+        fidelity="summary:medium"
+    ]
+
+    // Fallback: si validate_chain agota sus 3 retries en xhigh, entra este
+    // nodo con reasoning_effort=high. Mismo prompt, thinking budget mas
+    // corto → menos probabilidad de stream timeout. Complementa al
+    // retry_target=fix_validate_chain (que solo dispara en goal_gate fail).
+    validate_chain_fallback [
+        label="Validate & Chain (fallback high)",
+        prompt="@prompts/validate-chain.md",
+        timeout="3600s",
+        max_retries=0,           // exactamente 1 intento
+        fidelity="summary:medium"
+    ]
+
+    // Senior Review — corre tras cada iteración del loop de discovery.
+    // Re-evalúa todos los findings/chains: ajusta severidad, marca duplicados,
+    // y dropea lo que no vale reportar. NO borra del JSON — agrega
+    // senior_review.verdict ("report"|"drop"|"duplicate_of:<id>").
+    // Idempotente entre iteraciones (puede un-drop si nuevo contexto cambia
+    // la decisión).
+    senior_review [
+        label="Senior Review",
+        prompt="@prompts/senior-review.md",
+        timeout="3600s",
+        max_retries=3,
+        max_visits=21,                // mismo workaround Fabro 0.207 (visit-limit):
+                                      // 1 visit por iter del discovery loop
+                                      // (hasta 20 iters (cap configurable, default 5)) → max=21.
+        fidelity="summary:medium"
+    ]
+
+    // Deriva la cobertura (técnicas intentadas, incl. fallidas) del exec.log
+    // REAL por iteración (ventana incremental con offset+overlap). El active ya
+    // no loguea cobertura a mano — sale completa de lo que de verdad se ejecutó.
+    coverage_scan [
+        label="Coverage Scan",
+        prompt="@prompts/coverage-scan.md",
+        max_visits=21,   // 1 visit por iter del discovery loop (hasta 20 iters (cap configurable, default 5)) → max=21.
+        max_tokens=2000,
+        fidelity="truncate"
+    ]
+
+    check_discoveries [
+        label="Check Discoveries",
+        prompt="@prompts/check-discoveries.md",
+        max_visits=21,   // 1 visit por iter del discovery loop (hasta 20 iters (cap configurable, default 5)) → max=21.
+        max_tokens=500,
+        fidelity="truncate"
+    ]
+
+    discovery_gate [shape=diamond, label="More to explore?"]
+
+    fix_validate_chain [
+        label="Fix Validate",
+        prompt="El nodo validate_chain fallo. Lee el output, diagnostica (probablemente JSON malformado en findings.json, referencias a archivos que no existen, o timeout en probes de confirmacion). Corrige los archivos en $WIK3_DIR/validated/ (pueden estar parcialmente escritos) y deja el estado para reintentar. Si no hay nada que validar (ej: passive+active ambos vacios), emite {\"context_updates\": {\"validate_abort\": true}}.",
+        max_visits=2,
+        timeout="600s"
+    ]
+
+    // Cleanup: housekeeping al cierre (scratch temporal, symlink legacy 'current')
+    // + marca finished_at + aviso de fin al panel. Best-effort, nunca rompe el run.
+    cleanup [
+        label="Cleanup",
+        shape=parallelogram,
+        script="bash fabro/workflows/wik3/scripts/cleanup.sh"
+    ]
+
+    // Easter egg: ASCII art aleatorio al cerrar el happy-path. Imprime
+    // a stdout (exec.log) y appendea al chat del dashboard. Nunca falla.
+    farewell [
+        label="Farewell",
+        shape=parallelogram,
+        script="bash fabro/workflows/wik3/scripts/farewell.sh"
+    ]
+
+    start            -> load_engagement
+    load_engagement  -> retest_detect     [condition="outcome=success"]
+    load_engagement  -> exit
+    retest_detect    -> retest          [label="retest (hay manifiesto)", condition="outcome=fail"]
+    retest_detect    -> detect_mode     [label="run normal (default)"]
+    detect_mode      -> recon
+    retest           -> cleanup
+    recon            -> passive_analyze
+    passive_analyze  -> mode_gate
+    mode_gate        -> active_analyze    [label="activo",  condition="context.mode=activo"]
+    mode_gate        -> validate_gate     [label="pasivo"]
+    active_analyze   -> validate_gate
+    validate_gate    -> coverage_scan     [label="nada nuevo, saltea validate+senior", condition="context.needs_validation=false"]
+    validate_gate    -> validate_chain    [label="hay hallazgos sin validar (o flag ausente → valida igual)"]
+    validate_chain          -> senior_gate       [condition="outcome=success"]
+    validate_chain          -> validate_chain_fallback   // stream error tras 3 retries
+    validate_chain_fallback -> senior_gate
+    senior_gate      -> coverage_scan     [label="prueba rápida: salta senior", condition="context.quick_test=true"]
+    senior_gate      -> senior_review     [label="QA normal"]
+    senior_review           -> coverage_scan
+    coverage_scan           -> check_discoveries
+    check_discoveries -> discovery_gate
+    discovery_gate   -> passive_analyze  [label="nueva superficie",   condition="context.new_discoveries>0 && context.under_cap=true"]
+    discovery_gate   -> passive_analyze  [label="active sin terminar", condition="context.active_incomplete=true && context.under_cap=true"]
+    discovery_gate   -> cleanup          [label="done"]
+    cleanup          -> farewell
+    farewell         -> exit
+
+    fix_recon           -> exit               [condition="context.recon_abort=true"]
+    fix_recon           -> recon
+    fix_validate_chain  -> exit               [condition="context.validate_abort=true"]
+    fix_validate_chain  -> validate_chain
+}

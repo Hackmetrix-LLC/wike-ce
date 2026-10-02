@@ -1,0 +1,240 @@
+# wik3 · engagement.example.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Template comentado para configurar un engagement de wik3.
+#
+# Cómo usarlo:
+#   1. Copia este archivo a `engagements/engagement.<slug>.yaml`
+#      (la carpeta `engagements/` está git-ignorada porque los engagements
+#      reales contienen credenciales productivas).
+#   2. Ajusta mode, scope, credentials, rules_of_engagement según el target.
+#   3. Ejecuta:
+#        fabro run wik3 --goal ./engagements/engagement.<slug>.yaml
+#
+# El `slug` se deriva del filename:
+#   engagement.juice-shop.yaml  → slug = juice-shop
+#   engagement.yaml             → slug = default
+# Cada slug tiene su propio directorio aislado en `/workspace/wik3/<slug>/`.
+#
+# Ver `spec.wik3.md` §2.10 para la referencia formal del schema.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─── mode ─────────────────────────────────────────────────────────────────────
+# Dos valores posibles:
+#   pasivo  → solo OSINT y correlación. Cero tráfico al target.
+#             El hook scope-guard bloquea nmap/ffuf/curl-al-host/etc.
+#             Útil para: due diligence, pre-engagement recon, compliance passes.
+#
+#   activo  → agrega probing autorizado: SQLi/XSS/SSRF marker-based, IDOR,
+#             JWT attacks, login con creds, browse.py para SPAs con CSRF.
+#             Requiere autorización explícita del dueño del target.
+mode: activo
+
+
+# ─── types ────────────────────────────────────────────────────────────────────
+# Tipo(s) de engagement. Lista para soportar mezclas (común: webapp+cloud).
+# Valores válidos: webapp | mobile | internal | cloud
+#   - webapp:   webapps, APIs HTTP/REST, GraphQL, SPAs. Tools: gau, tlsx,
+#               sourcemapper, linkfinder, ffuf, hurl, jwt_tool, browse.py.
+#   - mobile:   apps Android (APK) o iOS (IPA). [tools por agregar en PR
+#               siguiente: apktool, jadx, mobsfscan, androguard, frida-tools.]
+#   - internal: red interna, Active Directory, SMB/Kerberos, lateral movement.
+#               [tools por agregar: impacket, crackmapexec, bloodhound,
+#               responder, kerbrute.]
+#   - cloud:    AWS/GCP/Azure infra, IAM, S3, K8s. [tools por agregar:
+#               aws-cli, gcloud, az, prowler, scoutsuite, cloudsplaining,
+#               trufflehog.]
+# Default si se omite: ["webapp"].
+types:
+  - webapp
+
+
+# ─── scope ────────────────────────────────────────────────────────────────────
+# El scope define QUÉ se puede tocar. Todo request del agente pasa por
+# `scope_matches()` en `scripts/_common.sh` antes de salir del sandbox.
+# Cualquier URL que no matchee → BLOCK.
+#
+# Reglas de matching:
+#   - `http://host:3000`         → host+port exacto; path wildcard.
+#   - `http://host:3000/app`     → prefix match sobre el path.
+#   - `10.0.0.1` (IP bare)       → CUALQUIER puerto en esa IP (peligroso si
+#                                  el target está en un puerto específico —
+#                                  el agente puede terminar pokeando servicios
+#                                  vecinos). PREFERIR `urls:` con puerto.
+#   - `example.com` (dominio)    → cualquier URL que contenga ese host.
+#
+# Además, el scope-guard tiene una allowlist implícita para OSINT externo
+# (crt.sh, NVD, GitHub, Shodan, Censys, archive.org, interactsh OAST,
+# localhost, link-local). No hay que agregarlos al scope.
+#
+# ⚠️  TARGETS EN EL HOST LOCAL (Docker Desktop):
+# El agente corre dentro de un contenedor fabro-agent; su `localhost` NO es
+# el host. Para targets locales (contenedores de labs, dev servers, APIs
+# corriendo en tu máquina) usa `host.docker.internal:<puerto>`, no
+# `localhost:<puerto>`. En Docker Desktop (macOS/Windows) este hostname
+# resuelve al host desde dentro del contenedor; `localhost` apunta al
+# loopback del propio agente y da connection refused.
+# Ejemplo correcto:
+#   urls:
+#     - http://host.docker.internal:8081
+#     - http://host.docker.internal:8082
+
+scope:
+  # Dominios — cualquier URL bajo estos hostnames.
+  domains:
+    - example.com
+    - api.example.com
+
+  # IPs o rangos CIDR. CUIDADO con IP bare cuando el target está en un
+  # puerto específico (ver arriba). Preferir siempre `urls:` con puerto.
+  ips:
+    - 203.0.113.10
+    - 203.0.113.0/24
+
+  # URLs con host+puerto (y opcionalmente path). Es la forma MÁS PRECISA
+  # de definir scope — evita que el agente se desborde a puertos vecinos.
+  # Para targets en el host local, usa `host.docker.internal` en vez de
+  # `localhost` (ver nota arriba).
+  urls:
+    - https://example.com/app
+
+  # Subdominios / IPs / paths que el agente NUNCA debe tocar, incluso si
+  # matchearían el scope positivo. Útil para excluir admin endpoints,
+  # subdominios de terceros, IPs de infra compartida.
+  out_of_scope:
+    - admin.example.com
+    - 203.0.113.1
+
+
+# ─── credentials ──────────────────────────────────────────────────────────────
+# Credenciales iniciales provistas por el operador. `load_engagement.sh` las
+# carga al vault (`/workspace/wik3/<slug>/creds/vault.jsonl`, perms 600) solo
+# si el vault está vacío (primer run del slug). Runs posteriores preservan
+# las creds que el agente acumuló durante probing.
+#
+# El agente usa las creds del vault por `id` (C-001, C-002, ...), NUNCA pega
+# el value en logs/findings. Los prompts renderizan `auth_template` con el
+# value sustituido via jq.
+#
+# Estructura soportada:
+#   credentials:
+#     webapp:           # login tradicional (form + session cookie o JWT)
+#       login_url: <url del form de login>
+#       user: <email o username>
+#       pass: <password>
+#     api:              # API con bearer token pre-generado
+#       base_url: <origen de la API>
+#       bearer: <JWT o token>
+#
+# Puedes omitir cualquiera de los dos. Si no hay creds iniciales, el agente
+# intenta registro abierto, SQLi login bypass, JWT forge, leaks, etc., y
+# va acumulando creds con `cred_append.sh`.
+
+credentials:
+  webapp:
+    login_url: https://example.com/login
+    user: testuser@example.com
+    pass: "changeme"
+  api:
+    base_url: https://api.example.com
+    bearer: "eyJhbGci..."
+
+
+# ─── rules_of_engagement ──────────────────────────────────────────────────────
+# ROE = qué tan agresivo puede ser el agente. Se copia a
+# `/workspace/wik3/<slug>/roe.yaml` y los prompts lo respetan.
+
+rules_of_engagement:
+  # Rate limit global. El agente lo usa para calcular `--max-rate` de nmap,
+  # delays entre probes, tamaño de batches en ffuf. Valores típicos:
+  #   - Producción sensible: 2-5
+  #   - Staging autorizado: 10-20
+  #   - Lab local: 20-50
+  max_rps: 5
+
+  # Ventana horaria permitida. Formato libre — los prompts lo interpretan.
+  # Ejemplos: "24/7", "09:00-18:00 America/Santiago", "weekends only".
+  allowed_hours: "24/7"
+
+  # Técnicas prohibidas. El agente las respeta al elegir payloads. Valores
+  # habituales:
+  #   - dos                   → ningún ataque de disponibilidad.
+  #   - social_engineering    → no phishing, no OSINT a empleados individuales.
+  #   - destructive_payloads  → no DROP TABLE, rm, ransomware-like, etc.
+  #     (También hay un hook `no-destructive` que bloquea patterns obvios.)
+  #   - brute_force           → omitir si quieres desactivar hydra/medusa-like.
+  #   - exploitation          → solo PoC sin post-exploit si lo limitas aquí.
+  forbidden_techniques:
+    - dos
+    - social_engineering
+    - destructive_payloads
+
+  # Si true, el hook `stage_complete` en `validate_chain` imprime un alert
+  # cuando detecta chains con `severity=critical`. Útil en engagements
+  # productivos para que el operador sepa en tiempo real.
+  notify_on_critical: true
+
+
+# ─── safety ──────────────────────────────────────────────────────────────────
+# Política de seguridad de datos. read_only_mode=true es el DEFAULT — el
+# dashboard lo inyecta si no se especifica. Bajo este modo:
+#   - El agente NO elimina ni modifica datos pre-existentes durante el
+#     análisis activo.
+#   - Para probar flujos CRUD, crea registros nuevos (POST) y los documenta
+#     en notes.jsonl con tag `cleanup` para limpieza posterior por el cliente.
+#   - El hook scope_guard.sh bloquea automáticamente:
+#       · SQL DML/DDL (INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER/...)
+#       · HTTP destructivo (PUT/PATCH/DELETE/-T/--upload-file)
+#       · Comandos shell destructivos (rm -rf, mv, dd if=, mkfs, shred, ...)
+#     POST queda permitido (login, búsquedas, GraphQL queries necesarios para
+#     reads).
+# Solo cámbialo a `false` si el operador autoriza pruebas destructivas
+# explícitamente (test environment, datos descartables, etc.).
+safety:
+  read_only_mode: true
+
+
+# ─── operational_guidance ────────────────────────────────────────────────────
+# Recomendaciones operativas para el agente. Los prompts leen estos campos
+# y los respetan. Algunos también se enforzan en scope_guard.sh como
+# defense-in-depth (no solo confía en el agente).
+operational_guidance:
+  # forbidden_endpoints_patterns: lista de regex contra el PATH de la URL.
+  # scope_guard.sh bloquea cualquier request del agente cuyo path matchee
+  # alguna pattern, aunque la URL esté en scope.
+  # Casos típicos:
+  #   - pagos / facturación (no dispararlos en pentests, aunque sea test env)
+  #   - OAuth/SSO callbacks (rompen integraciones con terceros si los probás mal)
+  #   - admin destructive endpoints
+  forbidden_endpoints_patterns:
+    - '^/(payment|checkout|invoice|billing)'
+    - '^/oauth/(authorize|token|callback)'
+    - '^/(admin|account)/(delete|destroy|deactivate)'
+
+  # user_agent: UA realista para todos los requests del agente. Sin esto,
+  # curl/python delatan scraper y muchos WAFs los bloquean directo.
+  # Si no se setea, los prompts usan el default de cada tool.
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
+
+# ─── Notas útiles que no son campos del schema ───────────────────────────────
+#
+# 1. Contexto para el agente: si el target tiene peculiaridades (Auth0,
+#    CAPTCHAs, WAF, login flow en múltiples pasos), agrégalo como comentarios
+#    al inicio del archivo. El agente lee el engagement.yaml completo
+#    (incluyendo comments) al arrancar.
+#
+# 2. Comentarios en engagements productivos reales deberían explicitar:
+#      - quién autorizó el engagement (email/contacto)
+#      - timezone del operador
+#      - restricciones extras (captchas, WAFs, rate-limits)
+#      - qué NO se puede romper (cuentas reales, pagos, integraciones OAuth)
+#
+# 3. Idempotencia: correr `fabro run wik3 --goal <archivo>` dos veces sobre
+#    el mismo slug preserva `queue.jsonl`, `vault.jsonl` y `findings.json`
+#    existentes. Solo re-seedea cuando están vacíos. Borra
+#    `/workspace/wik3/<slug>/` para empezar de cero.
+#
+# 4. Scope concurrente: Fabro no interpola `{{ goal }}` en `sandbox.env`,
+#    así que runs paralelos sobre engagements distintos se pisan el symlink
+#    `current`. Córrelos secuencialmente o en sandboxes separados.
