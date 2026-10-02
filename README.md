@@ -1,5 +1,5 @@
 ### Importante:
-| Este proyecto es código deprecado, el cual representa una prueba de concepto con fines demostrativos. El autor de este repositorio solo autoriza su uso en ambientes cerrados y bajo estricta autorización.
+> Este proyecto es código deprecado, el cual representa una prueba de concepto con fines demostrativos. El autor de este repositorio solo autoriza su uso en ambientes cerrados y bajo estricta autorización.
 
 # wik3
 
